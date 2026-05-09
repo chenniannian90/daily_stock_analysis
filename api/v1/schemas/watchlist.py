@@ -1,10 +1,29 @@
 # -*- coding: utf-8 -*-
 """自选股 API Schema 定义"""
 
+import re
 from datetime import datetime
 from typing import List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+
+def validate_stock_code(code: str) -> str:
+    """验证股票代码格式"""
+    code = code.strip().upper()
+    # A股: 6位数字
+    # 港股: HK + 5位数字
+    # 美股: 1-5位大写字母
+    if not re.match(r'^(\d{6}|HK\d{5}|[A-Z]{1,5})$', code):
+        raise ValueError('股票代码格式无效，支持: 6位数字(A股)、HK+5位数字(港股)、1-5位字母(美股)')
+    return code
+
+
+def validate_hex_color(color: str) -> str:
+    """验证颜色格式"""
+    if not re.match(r'^#[0-9A-Fa-f]{6}$', color):
+        raise ValueError('颜色格式无效，应为 #RRGGBB 格式')
+    return color
 
 
 # ========== 标签 ==========
@@ -13,10 +32,22 @@ class TagCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=32, description="标签名称")
     color: str = Field(default="#6b7280", description="颜色")
 
+    @field_validator('color')
+    @classmethod
+    def validate_color(cls, v: str) -> str:
+        return validate_hex_color(v)
+
 
 class TagUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=32)
     color: Optional[str] = None
+
+    @field_validator('color')
+    @classmethod
+    def validate_color(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        return validate_hex_color(v)
 
 
 class TagItem(BaseModel):
@@ -57,6 +88,11 @@ class GroupItem(BaseModel):
 class StockAdd(BaseModel):
     code: str = Field(..., min_length=1, max_length=10, description="股票代码")
     name: Optional[str] = Field(None, max_length=50, description="股票名称")
+
+    @field_validator('code')
+    @classmethod
+    def validate_code(cls, v: str) -> str:
+        return validate_stock_code(v)
 
 
 class StockTagUpdate(BaseModel):

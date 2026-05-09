@@ -5,8 +5,9 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.orm import Session
 
-from api.deps import get_database_manager
+from api.deps import get_db, get_database_manager
 from api.v1.schemas.watchlist import (
     AnalysisHistoryItem,
     AccuracyStats,
@@ -24,6 +25,7 @@ from api.v1.schemas.watchlist import (
     TagItem,
     TagUpdate,
 )
+from data_provider.base import DataFetcherManager
 from src.repositories.watchlist_repo import WatchlistRepository
 from src.storage import DatabaseManager
 
@@ -31,8 +33,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/watchlist", tags=["watchlist"])
 
 
-def get_repo(db_manager: DatabaseManager = Depends(get_database_manager)) -> WatchlistRepository:
-    return WatchlistRepository(db_manager=db_manager)
+def get_repo(session: Session = Depends(get_db)) -> WatchlistRepository:
+    return WatchlistRepository(session=session)
 
 
 # ========== 自选股 ==========
@@ -50,10 +52,20 @@ def list_stocks(
     stocks = repo.list_stocks(group_id=group_id, tag_id=tag_id, limit=limit, offset=offset)
     total = repo.count_stocks(group_id=group_id, tag_id=tag_id)
 
+    # 批量加载标签和分组，避免 N+1 查询
+    stock_ids = [s.id for s in stocks]
+    tags_map = repo.get_all_stock_tags(stock_ids)
+    groups_map = repo.get_all_stock_groups(stock_ids)
+
+    # 批量获取最新预测
+    codes = [s.code for s in stocks]
+    predictions_map = repo.get_latest_predictions(codes)
+
     items = []
     for stock in stocks:
-        tags = repo.get_stock_tags(stock.code)
-        group = repo.get_stock_group(stock.code)
+        tags = tags_map.get(stock.id, [])
+        group = groups_map.get(stock.id)
+        prediction_data = predictions_map.get(stock.code, {})
 
         items.append(StockListItem(
             code=stock.code,
@@ -61,8 +73,8 @@ def list_stocks(
             tags=[TagItem(id=t.id, name=t.name, color=t.color, created_at=t.created_at) for t in tags],
             group=GroupItem(id=group.id, name=group.name, sort_order=group.sort_order, stock_count=0, created_at=group.created_at) if group else None,
             last_analysis_at=stock.last_analysis_at,
-            last_prediction=None,
-            last_advice=None,
+            last_prediction=prediction_data.get("trend_prediction"),
+            last_advice=prediction_data.get("operation_advice"),
             created_at=stock.created_at,
         ))
 
@@ -74,9 +86,18 @@ def add_stock(
     request: StockAdd,
     repo: WatchlistRepository = Depends(get_repo),
 ):
-    """添加自选股"""
+    """添加自选股，自动查询股票名称"""
     try:
-        stock = repo.add_stock(code=request.code, name=request.name)
+        stock_name = request.name
+        if not stock_name:
+            try:
+                fetcher = DataFetcherManager()
+                stock_name = fetcher.get_stock_name(request.code, allow_realtime=True)
+            except Exception as e:
+                logger.warning(f"获取股票名称失败: {e}")
+                stock_name = request.code
+
+        stock = repo.add_stock(code=request.code, name=stock_name)
         return StockListItem(
             code=stock.code,
             name=stock.name,
@@ -107,75 +128,74 @@ def get_stock_history(
     code: str,
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
-    repo: WatchlistRepository = Depends(get_repo),
-    db_manager: DatabaseManager = Depends(get_database_manager),
+    session: Session = Depends(get_db),
 ):
     """获取单只股票的历史分析记录"""
     from sqlalchemy import select, func
     from src.storage import AnalysisHistory, BacktestResult
 
+    repo = WatchlistRepository(session=session)
     stock = repo.get_stock_by_code(code)
     if not stock:
         raise HTTPException(status_code=404, detail=f"股票 {code} 不在自选股中")
 
     offset = (page - 1) * limit
-    with db_manager.get_session() as session:
-        total = session.execute(
-            select(func.count(AnalysisHistory.id)).where(AnalysisHistory.code == code)
-        ).scalar() or 0
+    total = session.execute(
+        select(func.count(AnalysisHistory.id)).where(AnalysisHistory.code == code)
+    ).scalar() or 0
 
-        records = session.execute(
-            select(AnalysisHistory)
-            .where(AnalysisHistory.code == code)
-            .order_by(AnalysisHistory.created_at.desc())
-            .limit(limit)
-            .offset(offset)
-        ).scalars().all()
+    records = session.execute(
+        select(AnalysisHistory)
+        .where(AnalysisHistory.code == code)
+        .order_by(AnalysisHistory.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+    ).scalars().all()
 
-        items = []
-        for r in records:
-            backtest = session.execute(
-                select(BacktestResult)
-                .where(BacktestResult.analysis_history_id == r.id)
-                .limit(1)
-            ).scalar_one_or_none()
-
-            analysis_time = r.created_at.strftime("%H:%M") if r.created_at else None
-            analysis_date = r.created_at.strftime("%Y-%m-%d") if r.created_at else None
-
-            items.append(AnalysisHistoryItem(
-                id=r.id,
-                analysis_date=analysis_date,
-                analysis_time=analysis_time,
-                trend_prediction=r.trend_prediction,
-                operation_advice=r.operation_advice,
-                sentiment_score=r.sentiment_score,
-                analysis_summary=r.analysis_summary[:100] + "..." if r.analysis_summary and len(r.analysis_summary) > 100 else r.analysis_summary,
-                backtest_outcome=backtest.outcome if backtest else None,
-                direction_correct=backtest.direction_correct if backtest else None,
-            ))
-
-        completed_backtests = session.execute(
+    items = []
+    for r in records:
+        backtest = session.execute(
             select(BacktestResult)
-            .join(AnalysisHistory, BacktestResult.analysis_history_id == AnalysisHistory.id)
-            .where(AnalysisHistory.code == code)
-            .where(BacktestResult.eval_status == "completed")
-        ).scalars().all()
+            .where(BacktestResult.analysis_history_id == r.id)
+            .limit(1)
+        ).scalar_one_or_none()
 
-        if completed_backtests:
-            correct = sum(1 for b in completed_backtests if b.direction_correct is True)
-            win = sum(1 for b in completed_backtests if b.outcome == "win")
-            loss = sum(1 for b in completed_backtests if b.outcome == "loss")
-            neutral = sum(1 for b in completed_backtests if b.outcome == "neutral")
+        analysis_time = r.created_at.strftime("%H:%M") if r.created_at else None
+        analysis_date = r.created_at.strftime("%Y-%m-%d") if r.created_at else None
 
-            stats = AccuracyStats(
-                direction_accuracy=round(correct / len(completed_backtests) * 100, 2) if completed_backtests else None,
-                win_count=win,
-                loss_count=loss,
-                neutral_count=neutral,
-            )
-        else:
-            stats = None
+        items.append(AnalysisHistoryItem(
+            id=r.id,
+            analysis_date=analysis_date,
+            analysis_time=analysis_time,
+            trend_prediction=r.trend_prediction,
+            operation_advice=r.operation_advice,
+            sentiment_score=r.sentiment_score,
+            analysis_summary=r.analysis_summary[:100] + "..." if r.analysis_summary and len(r.analysis_summary) > 100 else r.analysis_summary,
+            backtest_outcome=backtest.outcome if backtest else None,
+            direction_correct=backtest.direction_correct if backtest else None,
+        ))
+
+    completed_backtests = session.execute(
+        select(BacktestResult)
+        .join(AnalysisHistory, BacktestResult.analysis_history_id == AnalysisHistory.id)
+        .where(AnalysisHistory.code == code)
+        .where(BacktestResult.eval_status == "completed")
+    ).scalars().all()
+
+    if completed_backtests:
+        correct = sum(1 for b in completed_backtests if b.direction_correct is True)
+        win = sum(1 for b in completed_backtests if b.outcome == "win")
+        loss = sum(1 for b in completed_backtests if b.outcome == "loss")
+        neutral = sum(1 for b in completed_backtests if b.outcome == "neutral")
+
+        stats = AccuracyStats(
+            direction_accuracy=round(correct / len(completed_backtests) * 100, 2) if completed_backtests else None,
+            win_count=win,
+            loss_count=loss,
+            neutral_count=neutral,
+        )
+    else:
+        stats = None
 
     return StockHistoryResponse(items=items, total=total, page=page, limit=limit, accuracy_stats=stats)
 

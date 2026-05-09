@@ -227,6 +227,25 @@ class WatchlistRepository:
             .where(WatchlistStockTag.stock_id == stock.id)
         ).scalars().all())
 
+    def get_all_stock_tags(self, stock_ids: List[int]) -> dict[int, List[WatchlistTag]]:
+        """批量获取多只股票的标签，避免 N+1 查询"""
+        if not stock_ids:
+            return {}
+
+        # 一次查询获取所有关联
+        results = self._session.execute(
+            select(WatchlistStockTag.stock_id, WatchlistTag)
+            .join(WatchlistTag, WatchlistStockTag.tag_id == WatchlistTag.id)
+            .where(WatchlistStockTag.stock_id.in_(stock_ids))
+        ).all()
+
+        # 按 stock_id 分组
+        tags_map: dict[int, List[WatchlistTag]] = {sid: [] for sid in stock_ids}
+        for stock_id, tag in results:
+            tags_map[stock_id].append(tag)
+
+        return tags_map
+
     # ========== 分组操作 ==========
 
     def create_group(self, name: str, sort_order: int = 0) -> WatchlistGroup:
@@ -318,3 +337,48 @@ class WatchlistRepository:
             .join(WatchlistStockGroup, WatchlistGroup.id == WatchlistStockGroup.group_id)
             .where(WatchlistStockGroup.stock_id == stock.id)
         ).scalar_one_or_none()
+
+    def get_all_stock_groups(self, stock_ids: List[int]) -> dict[int, Optional[WatchlistGroup]]:
+        """批量获取多只股票的分组，避免 N+1 查询"""
+        if not stock_ids:
+            return {}
+
+        # 一次查询获取所有关联
+        results = self._session.execute(
+            select(WatchlistStockGroup.stock_id, WatchlistGroup)
+            .join(WatchlistGroup, WatchlistStockGroup.group_id == WatchlistGroup.id)
+            .where(WatchlistStockGroup.stock_id.in_(stock_ids))
+        ).all()
+
+        # 按 stock_id 分组（每只股票最多一个分组）
+        groups_map: dict[int, Optional[WatchlistGroup]] = {sid: None for sid in stock_ids}
+        for stock_id, group in results:
+            groups_map[stock_id] = group
+
+        return groups_map
+
+    def get_latest_predictions(self, codes: List[str]) -> dict[str, dict]:
+        """批量获取股票最新预测和建议"""
+        if not codes:
+            return {}
+
+        from src.storage import AnalysisHistory
+
+        # 使用子查询获取每只股票最新的分析记录
+        # SQLite 不支持 DISTINCT ON，使用窗口函数
+        results = self._session.execute(
+            select(AnalysisHistory.code, AnalysisHistory.trend_prediction, AnalysisHistory.operation_advice)
+            .where(AnalysisHistory.code.in_(codes))
+            .order_by(AnalysisHistory.code, AnalysisHistory.created_at.desc())
+        ).all()
+
+        # 按 code 去重，只保留最新的
+        predictions_map: dict[str, dict] = {}
+        for code, prediction, advice in results:
+            if code not in predictions_map:
+                predictions_map[code] = {
+                    "trend_prediction": prediction,
+                    "operation_advice": advice,
+                }
+
+        return predictions_map

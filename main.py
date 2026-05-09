@@ -940,6 +940,51 @@ def main() -> int:
                 else:
                     logger.info("EventMonitor 已启用，但未加载到有效规则，跳过后台提醒任务")
 
+            # 自选股定时分析（11:30 和 19:00）
+            if getattr(config, 'watchlist_schedule_enabled', True):
+                from src.services.watchlist_service import WatchlistService
+                _watchlist_last_run = {"date": None, "morning": False, "evening": False}
+
+                def watchlist_analysis_task():
+                    """自选股定时分析：检查是否到分析时间"""
+                    now = datetime.now()
+                    today = now.strftime("%Y-%m-%d")
+                    current_time = now.strftime("%H:%M")
+
+                    # 只在交易日执行
+                    service = WatchlistService()
+                    if not service.is_trading_day(now):
+                        return
+
+                    # 检查是否需要执行
+                    if _watchlist_last_run["date"] != today:
+                        _watchlist_last_run["date"] = today
+                        _watchlist_last_run["morning"] = False
+                        _watchlist_last_run["evening"] = False
+
+                    morning_time = getattr(config, 'watchlist_morning_time', '11:30')
+                    evening_time = getattr(config, 'watchlist_evening_time', '19:00')
+
+                    # 11:30 早盘分析（允许 5 分钟窗口）
+                    if not _watchlist_last_run["morning"] and morning_time <= current_time <= f"{int(morning_time[:2]):02d}:{int(morning_time[3:5])+5:02d}":
+                        logger.info("[Watchlist] 触发早盘分析")
+                        service.run_scheduled_analysis(analysis_time="morning")
+                        _watchlist_last_run["morning"] = True
+
+                    # 19:00 晚盘分析（允许 5 分钟窗口）
+                    if not _watchlist_last_run["evening"] and evening_time <= current_time <= f"{int(evening_time[:2]):02d}:{int(evening_time[3:5])+5:02d}":
+                        logger.info("[Watchlist] 触发晚盘分析")
+                        service.run_scheduled_analysis(analysis_time="evening")
+                        _watchlist_last_run["evening"] = True
+
+                background_tasks.append({
+                    "task": watchlist_analysis_task,
+                    "interval_seconds": 60,  # 每分钟检查一次
+                    "run_immediately": False,
+                    "name": "watchlist_analysis",
+                })
+                logger.info(f"自选股定时分析已启用: 早盘 {config.watchlist_morning_time}, 晚盘 {config.watchlist_evening_time}")
+
             run_with_schedule(
                 task=scheduled_task,
                 schedule_time=config.schedule_time,
