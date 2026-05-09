@@ -155,3 +155,132 @@ class TestWatchlistRepository:
         codes = [s.code for s in result]
         assert "600519" in codes
         assert "000858" in codes
+
+
+class TestWatchlistTagRepository:
+    """测试标签数据访问"""
+
+    @pytest.fixture
+    def repo(self, db_session):
+        return WatchlistRepository(db_session)
+
+    def test_create_tag(self, repo):
+        """测试创建标签"""
+        tag = repo.create_tag(name="龙头", color="#00ff88")
+        assert tag.name == "龙头"
+        assert tag.color == "#00ff88"
+
+    def test_create_tag_duplicate(self, repo):
+        """测试重复创建标签"""
+        repo.create_tag(name="龙头")
+        with pytest.raises(ValueError, match="已存在"):
+            repo.create_tag(name="龙头")
+
+    def test_list_tags(self, repo):
+        """测试获取标签列表"""
+        repo.create_tag(name="龙头")
+        repo.create_tag(name="科技")
+
+        tags = repo.list_tags()
+        assert len(tags) == 2
+
+    def test_update_tag(self, repo):
+        """测试更新标签"""
+        tag = repo.create_tag(name="龙头")
+
+        updated = repo.update_tag(tag.id, name="核心", color="#ff0000")
+        assert updated.name == "核心"
+        assert updated.color == "#ff0000"
+
+    def test_delete_tag(self, repo):
+        """测试删除标签"""
+        tag = repo.create_tag(name="龙头")
+
+        repo.delete_tag(tag.id)
+
+        tags = repo.list_tags()
+        assert len(tags) == 0
+
+    def test_add_tag_to_stock(self, repo):
+        """测试给股票添加标签"""
+        stock = repo.add_stock(code="600519", name="贵州茅台")
+        tag = repo.create_tag(name="龙头")
+
+        repo.add_tag_to_stock(stock.code, tag.id)
+
+        tags = repo.get_stock_tags(stock.code)
+        assert len(tags) == 1
+        assert tags[0].name == "龙头"
+
+    def test_remove_tag_from_stock(self, repo):
+        """测试移除股票标签"""
+        stock = repo.add_stock(code="600519")
+        tag = repo.create_tag(name="龙头")
+        repo.add_tag_to_stock(stock.code, tag.id)
+
+        repo.remove_tag_from_stock(stock.code, tag.id)
+
+        tags = repo.get_stock_tags(stock.code)
+        assert len(tags) == 0
+
+
+class TestWatchlistGroupRepository:
+    """测试分组数据访问"""
+
+    @pytest.fixture
+    def repo(self, db_session):
+        return WatchlistRepository(db_session)
+
+    def test_create_group(self, repo):
+        """测试创建分组"""
+        group = repo.create_group(name="核心持仓", sort_order=1)
+        assert group.name == "核心持仓"
+        assert group.sort_order == 1
+
+    def test_list_groups(self, repo):
+        """测试获取分组列表"""
+        repo.create_group(name="核心持仓", sort_order=1)
+        repo.create_group(name="观察股", sort_order=2)
+
+        groups = repo.list_groups()
+        assert len(groups) == 2
+        assert groups[0].name == "核心持仓"
+
+    def test_update_group(self, repo):
+        """测试更新分组"""
+        group = repo.create_group(name="核心")
+
+        updated = repo.update_group(group.id, name="核心持仓", sort_order=5)
+        assert updated.name == "核心持仓"
+        assert updated.sort_order == 5
+
+    def test_delete_group(self, repo):
+        """测试删除分组"""
+        group = repo.create_group(name="核心")
+
+        repo.delete_group(group.id)
+
+        groups = repo.list_groups()
+        assert len(groups) == 0
+
+    def test_set_stock_group(self, repo):
+        """测试设置股票分组"""
+        stock = repo.add_stock(code="600519")
+        group = repo.create_group(name="核心")
+
+        repo.set_stock_group(stock.code, group.id)
+
+        result = repo.get_stock_group(stock.code)
+        assert result is not None
+        assert result.name == "核心"
+
+    def test_remove_stock_from_group(self, repo):
+        """测试移出分组"""
+        stock = repo.add_stock(code="600519")
+        group = repo.create_group(name="核心")
+        repo.set_stock_group(stock.code, group.id)
+
+        repo.remove_stock_from_group(stock.code)
+
+        result = repo.get_stock_group(stock.code)
+        assert result is None
