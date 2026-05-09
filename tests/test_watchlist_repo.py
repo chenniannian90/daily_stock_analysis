@@ -14,17 +14,20 @@ from src.storage import (
     WatchlistGroup,
     WatchlistStockGroup,
 )
+from src.repositories.watchlist_repo import WatchlistRepository
+
+
+@pytest.fixture
+def db_session():
+    """共享的数据库 session fixture"""
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        yield session
 
 
 class TestWatchlistModels:
     """测试自选股相关模型"""
-
-    @pytest.fixture
-    def db_session(self):
-        engine = create_engine("sqlite:///:memory:")
-        Base.metadata.create_all(engine)
-        with Session(engine) as session:
-            yield session
 
     def test_watchlist_stock_model_exists(self, db_session):
         """测试 WatchlistStock 模型可正常创建"""
@@ -96,3 +99,59 @@ class TestWatchlistModels:
         assert result is not None
         assert result.stock_id == stock.id
         assert result.group_id == group.id
+
+
+class TestWatchlistRepository:
+    """测试自选股数据访问层"""
+
+    @pytest.fixture
+    def repo(self, db_session):
+        return WatchlistRepository(db_session)
+
+    def test_add_stock(self, repo, db_session):
+        """测试添加自选股"""
+        stock = repo.add_stock(code="600519", name="贵州茅台")
+
+        assert stock.code == "600519"
+        assert stock.name == "贵州茅台"
+        assert stock.id is not None
+
+    def test_add_stock_duplicate_raises(self, repo):
+        """测试重复添加同一股票"""
+        repo.add_stock(code="600519", name="贵州茅台")
+
+        with pytest.raises(ValueError, match="已存在"):
+            repo.add_stock(code="600519", name="贵州茅台")
+
+    def test_get_stock_by_code(self, repo):
+        """测试按代码查询"""
+        repo.add_stock(code="600519", name="贵州茅台")
+
+        result = repo.get_stock_by_code("600519")
+        assert result is not None
+        assert result.name == "贵州茅台"
+
+    def test_get_stock_by_code_not_found(self, repo):
+        """测试查询不存在的股票"""
+        result = repo.get_stock_by_code("999999")
+        assert result is None
+
+    def test_delete_stock(self, repo):
+        """测试删除自选股"""
+        repo.add_stock(code="600519", name="贵州茅台")
+
+        repo.delete_stock("600519")
+
+        result = repo.get_stock_by_code("600519")
+        assert result is None
+
+    def test_list_stocks(self, repo):
+        """测试获取自选股列表"""
+        repo.add_stock(code="600519", name="贵州茅台")
+        repo.add_stock(code="000858", name="五粮液")
+
+        result = repo.list_stocks()
+        assert len(result) == 2
+        codes = [s.code for s in result]
+        assert "600519" in codes
+        assert "000858" in codes
