@@ -571,6 +571,110 @@ class PortfolioDailySnapshot(Base):
     )
 
 
+class WatchlistStock(Base):
+    """自选股"""
+
+    __tablename__ = 'watchlist_stocks'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    code = Column(String(10), nullable=False, unique=True, index=True)
+    name = Column(String(50))
+    last_analysis_at = Column(DateTime, index=True)
+    created_at = Column(DateTime, default=datetime.now, index=True)
+
+    def __repr__(self):
+        return f"<WatchlistStock(code={self.code}, name={self.name})>"
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'id': self.id,
+            'code': self.code,
+            'name': self.name,
+            'last_analysis_at': self.last_analysis_at.isoformat() if self.last_analysis_at else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class WatchlistTag(Base):
+    """自选股标签"""
+
+    __tablename__ = 'watchlist_tags'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(32), nullable=False, unique=True, index=True)
+    color = Column(String(16), default='#6b7280')
+    created_at = Column(DateTime, default=datetime.now)
+
+    def __repr__(self):
+        return f"<WatchlistTag(name={self.name}, color={self.color})>"
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'id': self.id,
+            'name': self.name,
+            'color': self.color,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class WatchlistStockTag(Base):
+    """股票-标签关联"""
+
+    __tablename__ = 'watchlist_stock_tags'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    stock_id = Column(Integer, ForeignKey('watchlist_stocks.id', ondelete='CASCADE'), nullable=False, index=True)
+    tag_id = Column(Integer, ForeignKey('watchlist_tags.id', ondelete='CASCADE'), nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.now)
+
+    __table_args__ = (
+        UniqueConstraint('stock_id', 'tag_id', name='uix_watchlist_stock_tag'),
+    )
+
+    def __repr__(self):
+        return f"<WatchlistStockTag(stock_id={self.stock_id}, tag_id={self.tag_id})>"
+
+
+class WatchlistGroup(Base):
+    """自选股分组"""
+
+    __tablename__ = 'watchlist_groups'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(32), nullable=False, unique=True, index=True)
+    sort_order = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.now)
+
+    def __repr__(self):
+        return f"<WatchlistGroup(name={self.name}, sort_order={self.sort_order})>"
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'id': self.id,
+            'name': self.name,
+            'sort_order': self.sort_order,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class WatchlistStockGroup(Base):
+    """股票-分组关联"""
+
+    __tablename__ = 'watchlist_stock_groups'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    stock_id = Column(Integer, ForeignKey('watchlist_stocks.id', ondelete='CASCADE'), nullable=False, index=True)
+    group_id = Column(Integer, ForeignKey('watchlist_groups.id', ondelete='CASCADE'), nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.now)
+
+    __table_args__ = (
+        UniqueConstraint('stock_id', name='uix_watchlist_stock_group_stock'),
+    )
+
+    def __repr__(self):
+        return f"<WatchlistStockGroup(stock_id={self.stock_id}, group_id={self.group_id})>"
+
+
 class PortfolioFxRate(Base):
     """Cached FX rates used for cross-currency portfolio conversion."""
 
