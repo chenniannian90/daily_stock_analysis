@@ -1,0 +1,78 @@
+# ===================================
+# A股自选股智能分析系统 - Docker 镜像（国内镜像加速版）
+# ===================================
+# 多阶段构建：前端打包 + 后端运行
+
+FROM node:20-slim AS web-builder
+
+WORKDIR /app/apps/dsa-web
+
+# 使用淘宝 npm 镜像
+RUN npm config set registry https://registry.npmmirror.com
+
+COPY apps/dsa-web/package.json apps/dsa-web/package-lock.json ./
+RUN npm ci
+
+COPY apps/dsa-web/ ./
+RUN npm run build
+
+# Pin to bookworm: wkhtmltopdf was removed from Debian testing (2025)
+FROM python:3.11-slim-bookworm
+
+# 设置工作目录
+WORKDIR /app
+
+# 设置时区为上海
+ENV TZ=Asia/Shanghai
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+
+# 使用阿里云 apt 镜像
+RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || \
+    sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list 2>/dev/null || true
+
+# 安装系统依赖
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    curl \
+    wkhtmltopdf \
+    fontconfig \
+    libjpeg62-turbo \
+    libxrender1 \
+    libxext6 \
+    && rm -rf /var/lib/apt/lists/*
+
+# 创建非 root 用户 (UID 1000)
+RUN groupadd -g 1000 dsa && \
+    useradd -u 1000 -g dsa -m dsa
+
+# 复制依赖文件
+COPY requirements.txt .
+
+# 使用阿里云 pip 镜像安装 Python 依赖
+RUN pip install --no-cache-dir -r requirements.txt \
+    -i https://mirrors.aliyun.com/pypi/simple/ \
+    --trusted-host mirrors.aliyun.com
+
+# 复制应用代码
+COPY *.py ./
+COPY api/ ./api/
+COPY data_provider/ ./data_provider/
+COPY src/ ./src/
+COPY bot/ ./bot/
+COPY static/ ./static/
+COPY patch/ ./patch/
+
+# 复制 .env.example 作为默认配置
+COPY .env.example .env
+
+# 创建数据和日志目录
+RUN mkdir -p /app/data /app/logs && chown -R dsa:dsa /app
+
+# 切换到非 root 用户
+USER dsa
+
+# 暴露端口
+EXPOSE 8000
+
+# 启动命令
+CMD ["python", "main.py", "--serve"]
