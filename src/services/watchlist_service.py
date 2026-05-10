@@ -371,45 +371,73 @@ class WatchlistService:
         return result
 
     def _fetch_quotes(self, ts_codes: List[str]) -> Dict[str, Dict[str, Any]]:
-        """批量获取行情数据（一次全市场拉取 + 本地过滤）"""
+        """批量获取行情数据（腾讯 HTTP API 一次拉取，~200ms）"""
         result = {}
         if not ts_codes:
             return result
 
+        import urllib.request
+        import time as _time
+
+        # 构造腾讯行情 API 批量请求: sh600519,sz000001,...
+        symbols = []
+        for code in ts_codes:
+            code_upper = code.upper()
+            if code_upper.endswith('.SH'):
+                symbols.append(f'sh{code_upper[:-3]}')
+            elif code_upper.endswith('.SZ'):
+                symbols.append(f'sz{code_upper[:-3]}')
+            else:
+                symbols.append(code_upper.lower())
+
+        if not symbols:
+            return result
+
         try:
-            import os
-            import time as _time
-            # 容器内 efinance 默认 data 目录无写权限，指向 /tmp
-            os.environ.setdefault('EFINANCE_HOME', '/tmp/efinance')
-            import efinance as ef
-            from data_provider.efinance_fetcher import _ef_call_with_timeout
-
-            # efinance 一次拉取全市场实时行情（~0.5s），本地过滤，无逐股 sleep
+            url = f"http://qt.gtimg.cn/q={','.join(symbols)}"
             t0 = _time.time()
-            df = _ef_call_with_timeout(ef.stock.get_realtime_quotes)
+            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                raw = resp.read().decode('gbk')
             elapsed = _time.time() - t0
-            logger.info(f"全市场行情拉取完成: {len(df)} 只, 耗时 {elapsed:.2f}s")
+            logger.info(f"腾讯行情 API: {len(symbols)} 只, 耗时 {elapsed:.2f}s")
 
-            code_col = '股票代码' if '股票代码' in df.columns else 'code'
-            name_col = '股票名称' if '股票名称' in df.columns else 'name'
-            price_col = '最新价' if '最新价' in df.columns else 'price'
-            pct_col = '涨跌幅' if '涨跌幅' in df.columns else 'pct_chg'
-            turn_col = '换手率' if '换手率' in df.columns else 'turnover_rate'
-            mv_col = '总市值' if '总市值' in df.columns else 'total_mv'
-
-            for code in ts_codes:
-                row = df[df[code_col] == code]
-                if row.empty:
+            # 解析腾讯返回格式: var hq_str_sh600519="...";
+            for line in raw.strip().split('\n'):
+                if '="' not in line:
                     continue
-                r = row.iloc[0]
-                result[code] = {
-                    'close': float(r[price_col]) if pd.notna(r.get(price_col)) else None,
-                    'changePct': float(r[pct_col]) if pd.notna(r.get(pct_col)) else None,
-                    'totalMv': float(r[mv_col]) if mv_col in df.columns and pd.notna(r.get(mv_col)) else None,
-                    'turnoverRate': float(r[turn_col]) if pd.notna(r.get(turn_col)) else None,
-                }
+                try:
+                    parts = line.split('="', 1)
+                    sym = parts[0].replace('var hq_str_', '')
+                    data = parts[1].rstrip('";')
+                    fields = data.split('~')
+                    if len(fields) < 45:
+                        continue
+
+                    # 重建 tsCode: sh600519 -> 600519.SH
+                    if sym.startswith('sh'):
+                        ts_code = sym[2:] + '.SH'
+                    elif sym.startswith('sz'):
+                        ts_code = sym[2:] + '.SZ'
+                    else:
+                        ts_code = sym
+
+                    price = float(fields[3]) if fields[3] else None
+                    change_pct = float(fields[32]) if fields[32] else None
+                    total_mv = float(fields[45]) if len(fields) > 45 and fields[45] else None
+                    turnover = float(fields[38]) if len(fields) > 38 and fields[38] else None
+
+                    if price is not None and price > 0:
+                        result[ts_code] = {
+                            'close': price,
+                            'changePct': change_pct,
+                            'totalMv': total_mv,
+                            'turnoverRate': turnover,
+                        }
+                except (ValueError, IndexError) as e:
+                    logger.debug(f"解析腾讯行情 {sym} 失败: {e}")
         except Exception as e:
-            logger.warning(f"efinance 全量行情获取失败: {e}，回退到串行取数")
+            logger.warning(f"腾讯行情获取失败: {e}，回退到串行取数")
             from data_provider.base import DataFetcherManager
             fetcher = DataFetcherManager()
             for code in ts_codes:
