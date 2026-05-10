@@ -1,20 +1,21 @@
 # tests/test_watchlist_repo.py
-"""自选股数据访问层测试"""
+"""自选股数据访问层测试 - 新模型"""
 
+import json
 import pytest
 from datetime import datetime
 from sqlalchemy import create_engine
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from src.storage import (
     Base,
-    WatchlistStock,
-    WatchlistTag,
-    WatchlistStockTag,
-    WatchlistGroup,
-    WatchlistStockGroup,
+    WatchlistItem,
+    WatchlistGroupNew,
+    WatchlistSort,
+    UserTag,
+    StockUserTag,
 )
-from src.repositories.watchlist_repo import WatchlistRepository
 
 
 @pytest.fixture
@@ -26,261 +27,282 @@ def db_session():
         yield session
 
 
-class TestWatchlistModels:
-    """测试自选股相关模型"""
+class TestWatchlistItemModel:
+    """测试 WatchlistItem 模型"""
 
-    def test_watchlist_stock_model_exists(self, db_session):
-        """测试 WatchlistStock 模型可正常创建"""
-        stock = WatchlistStock(
-            code="600519",
-            name="贵州茅台",
+    def test_watchlist_item_create(self, db_session):
+        """测试创建条目"""
+        item = WatchlistItem(
+            user_id='default',
+            watch_type='stock',
+            group_id=1,
+            ts_code='600519.SH',
+            sort_num=0,
         )
-        db_session.add(stock)
+        db_session.add(item)
         db_session.commit()
 
-        result = db_session.query(WatchlistStock).filter_by(code="600519").first()
+        result = db_session.query(WatchlistItem).filter_by(ts_code='600519.SH').first()
         assert result is not None
-        assert result.code == "600519"
-        assert result.name == "贵州茅台"
-        assert result.id is not None
+        assert result.ts_code == '600519.SH'
+        assert result.group_id == 1
 
-    def test_watchlist_tag_model_exists(self, db_session):
-        """测试 WatchlistTag 模型可正常创建"""
-        tag = WatchlistTag(name="龙头", color="#00ff88")
-        db_session.add(tag)
+    def test_same_stock_multiple_groups(self, db_session):
+        """测试同一股票可在多个分组"""
+        item1 = WatchlistItem(user_id='default', group_id=1, ts_code='600519.SH')
+        item2 = WatchlistItem(user_id='default', group_id=2, ts_code='600519.SH')
+        db_session.add_all([item1, item2])
         db_session.commit()
 
-        result = db_session.query(WatchlistTag).filter_by(name="龙头").first()
-        assert result is not None
-        assert result.color == "#00ff88"
+        results = db_session.query(WatchlistItem).filter_by(ts_code='600519.SH').all()
+        assert len(results) == 2
 
-    def test_watchlist_group_model_exists(self, db_session):
-        """测试 WatchlistGroup 模型可正常创建"""
-        group = WatchlistGroup(name="核心持仓", sort_order=1)
+    def test_unique_constraint_same_group(self, db_session):
+        """测试同一分组不能重复添加"""
+        item1 = WatchlistItem(user_id='default', group_id=1, ts_code='600519.SH')
+        item2 = WatchlistItem(user_id='default', group_id=1, ts_code='600519.SH')
+        db_session.add_all([item1, item2])
+
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+
+    def test_watchlist_item_to_dict(self, db_session):
+        """测试 to_dict 方法"""
+        item = WatchlistItem(
+            user_id='default',
+            watch_type='stock',
+            group_id=1,
+            ts_code='600519.SH',
+            sort_num=5,
+        )
+        db_session.add(item)
+        db_session.commit()
+
+        result = db_session.query(WatchlistItem).first()
+        d = result.to_dict()
+        assert d['user_id'] == 'default'
+        assert d['ts_code'] == '600519.SH'
+        assert d['group_id'] == 1
+        assert d['sort_num'] == 5
+        assert 'created_at' in d
+
+
+class TestWatchlistGroupNewModel:
+    """测试分组模型"""
+
+    def test_group_create(self, db_session):
+        """测试创建分组"""
+        group = WatchlistGroupNew(user_id='default', name='核心持仓')
         db_session.add(group)
         db_session.commit()
 
-        result = db_session.query(WatchlistGroup).filter_by(name="核心持仓").first()
+        result = db_session.query(WatchlistGroupNew).filter_by(name='核心持仓').first()
         assert result is not None
-        assert result.sort_order == 1
+        assert result.name == '核心持仓'
 
-    def test_watchlist_stock_tag_model_exists(self, db_session):
-        """测试 WatchlistStockTag 模型可正常创建"""
-        # 先创建股票和标签
-        stock = WatchlistStock(code="600519", name="贵州茅台")
-        tag = WatchlistTag(name="龙头", color="#00ff88")
-        db_session.add_all([stock, tag])
+    def test_unique_group_name(self, db_session):
+        """测试分组名唯一"""
+        g1 = WatchlistGroupNew(user_id='default', name='核心持仓')
+        g2 = WatchlistGroupNew(user_id='default', name='核心持仓')
+        db_session.add_all([g1, g2])
+
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+
+    def test_different_user_same_group_name(self, db_session):
+        """测试不同用户可以有同名分组"""
+        g1 = WatchlistGroupNew(user_id='user1', name='核心持仓')
+        g2 = WatchlistGroupNew(user_id='user2', name='核心持仓')
+        db_session.add_all([g1, g2])
         db_session.commit()
 
-        # 创建关联
-        assoc = WatchlistStockTag(stock_id=stock.id, tag_id=tag.id)
+        results = db_session.query(WatchlistGroupNew).filter_by(name='核心持仓').all()
+        assert len(results) == 2
+
+    def test_group_to_dict(self, db_session):
+        """测试 to_dict 方法"""
+        group = WatchlistGroupNew(user_id='default', name='核心持仓')
+        db_session.add(group)
+        db_session.commit()
+
+        result = db_session.query(WatchlistGroupNew).first()
+        d = result.to_dict()
+        assert d['user_id'] == 'default'
+        assert d['name'] == '核心持仓'
+        assert 'created_at' in d
+
+
+class TestWatchlistSortModel:
+    """测试排序模型"""
+
+    def test_sort_create(self, db_session):
+        """测试创建排序记录"""
+        sort = WatchlistSort(
+            user_id='default',
+            sort_type='group_order',
+            sort_content=json.dumps([1, 2, 3]),
+        )
+        db_session.add(sort)
+        db_session.commit()
+
+        result = db_session.query(WatchlistSort).filter_by(
+            user_id='default', sort_type='group_order'
+        ).first()
+        assert result is not None
+        data = json.loads(result.sort_content)
+        assert data == [1, 2, 3]
+
+    def test_unique_sort_type_per_user(self, db_session):
+        """测试每个用户的每种排序类型只能有一条记录"""
+        sort1 = WatchlistSort(user_id='default', sort_type='group_order', sort_content='[]')
+        sort2 = WatchlistSort(user_id='default', sort_type='group_order', sort_content='[1]')
+        db_session.add_all([sort1, sort2])
+
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+
+    def test_different_sort_types(self, db_session):
+        """测试同一用户可以有不同类型的排序记录"""
+        sort1 = WatchlistSort(user_id='default', sort_type='group_order', sort_content='[1, 2]')
+        sort2 = WatchlistSort(user_id='default', sort_type='item_order', sort_content='[3, 4]')
+        db_session.add_all([sort1, sort2])
+        db_session.commit()
+
+        results = db_session.query(WatchlistSort).filter_by(user_id='default').all()
+        assert len(results) == 2
+
+    def test_sort_to_dict(self, db_session):
+        """测试 to_dict 方法"""
+        sort = WatchlistSort(
+            user_id='default',
+            sort_type='group_order',
+            sort_content='[1, 2, 3]',
+        )
+        db_session.add(sort)
+        db_session.commit()
+
+        result = db_session.query(WatchlistSort).first()
+        d = result.to_dict()
+        assert d['user_id'] == 'default'
+        assert d['sort_type'] == 'group_order'
+        assert d['sort_content'] == '[1, 2, 3]'
+
+
+class TestUserTagModels:
+    """测试用户标签模型"""
+
+    def test_user_tag_create(self, db_session):
+        """测试创建标签"""
+        tag = UserTag(user_id='default', name='龙头')
+        db_session.add(tag)
+        db_session.commit()
+
+        result = db_session.query(UserTag).filter_by(name='龙头').first()
+        assert result is not None
+
+    def test_unique_tag_name_per_user(self, db_session):
+        """测试同一用户的标签名唯一"""
+        tag1 = UserTag(user_id='default', name='龙头')
+        tag2 = UserTag(user_id='default', name='龙头')
+        db_session.add_all([tag1, tag2])
+
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+
+    def test_different_user_same_tag_name(self, db_session):
+        """测试不同用户可以有同名标签"""
+        tag1 = UserTag(user_id='user1', name='龙头')
+        tag2 = UserTag(user_id='user2', name='龙头')
+        db_session.add_all([tag1, tag2])
+        db_session.commit()
+
+        results = db_session.query(UserTag).filter_by(name='龙头').all()
+        assert len(results) == 2
+
+    def test_user_tag_to_dict(self, db_session):
+        """测试 to_dict 方法"""
+        tag = UserTag(user_id='default', name='龙头')
+        db_session.add(tag)
+        db_session.commit()
+
+        result = db_session.query(UserTag).first()
+        d = result.to_dict()
+        assert d['user_id'] == 'default'
+        assert d['name'] == '龙头'
+        assert 'created_at' in d
+
+
+class TestStockUserTagModel:
+    """测试股票标签关联模型"""
+
+    def test_stock_user_tag_association(self, db_session):
+        """测试股票标签关联"""
+        tag = UserTag(user_id='default', name='龙头')
+        db_session.add(tag)
+        db_session.commit()
+
+        assoc = StockUserTag(user_id='default', ts_code='600519.SH', tag_id=tag.id)
         db_session.add(assoc)
         db_session.commit()
 
-        result = db_session.query(WatchlistStockTag).first()
+        result = db_session.query(StockUserTag).filter_by(ts_code='600519.SH').first()
         assert result is not None
-        assert result.stock_id == stock.id
         assert result.tag_id == tag.id
 
-    def test_watchlist_stock_group_model_exists(self, db_session):
-        """测试 WatchlistStockGroup 模型可正常创建"""
-        # 先创建股票和分组
-        stock = WatchlistStock(code="000858", name="五粮液")
-        group = WatchlistGroup(name="核心持仓", sort_order=1)
-        db_session.add_all([stock, group])
+    def test_stock_multiple_tags(self, db_session):
+        """测试一只股票可以有多个标签"""
+        tag1 = UserTag(user_id='default', name='龙头')
+        tag2 = UserTag(user_id='default', name='白马')
+        db_session.add_all([tag1, tag2])
         db_session.commit()
 
-        # 创建关联
-        assoc = WatchlistStockGroup(stock_id=stock.id, group_id=group.id)
+        assoc1 = StockUserTag(user_id='default', ts_code='600519.SH', tag_id=tag1.id)
+        assoc2 = StockUserTag(user_id='default', ts_code='600519.SH', tag_id=tag2.id)
+        db_session.add_all([assoc1, assoc2])
+        db_session.commit()
+
+        results = db_session.query(StockUserTag).filter_by(ts_code='600519.SH').all()
+        assert len(results) == 2
+
+    def test_tag_multiple_stocks(self, db_session):
+        """测试一个标签可以关联多只股票"""
+        tag = UserTag(user_id='default', name='龙头')
+        db_session.add(tag)
+        db_session.commit()
+
+        assoc1 = StockUserTag(user_id='default', ts_code='600519.SH', tag_id=tag.id)
+        assoc2 = StockUserTag(user_id='default', ts_code='000858.SZ', tag_id=tag.id)
+        db_session.add_all([assoc1, assoc2])
+        db_session.commit()
+
+        results = db_session.query(StockUserTag).filter_by(tag_id=tag.id).all()
+        assert len(results) == 2
+
+    def test_unique_stock_tag_association(self, db_session):
+        """测试同一股票不能重复关联同一标签"""
+        tag = UserTag(user_id='default', name='龙头')
+        db_session.add(tag)
+        db_session.commit()
+
+        assoc1 = StockUserTag(user_id='default', ts_code='600519.SH', tag_id=tag.id)
+        assoc2 = StockUserTag(user_id='default', ts_code='600519.SH', tag_id=tag.id)
+        db_session.add_all([assoc1, assoc2])
+
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+
+    def test_stock_user_tag_to_dict(self, db_session):
+        """测试 to_dict 方法"""
+        tag = UserTag(user_id='default', name='龙头')
+        db_session.add(tag)
+        db_session.commit()
+
+        assoc = StockUserTag(user_id='default', ts_code='600519.SH', tag_id=tag.id)
         db_session.add(assoc)
         db_session.commit()
 
-        result = db_session.query(WatchlistStockGroup).first()
-        assert result is not None
-        assert result.stock_id == stock.id
-        assert result.group_id == group.id
-
-
-class TestWatchlistRepository:
-    """测试自选股数据访问层"""
-
-    @pytest.fixture
-    def repo(self, db_session):
-        return WatchlistRepository(db_session)
-
-    def test_add_stock(self, repo, db_session):
-        """测试添加自选股"""
-        stock = repo.add_stock(code="600519", name="贵州茅台")
-
-        assert stock.code == "600519"
-        assert stock.name == "贵州茅台"
-        assert stock.id is not None
-
-    def test_add_stock_duplicate_raises(self, repo):
-        """测试重复添加同一股票"""
-        repo.add_stock(code="600519", name="贵州茅台")
-
-        with pytest.raises(ValueError, match="已存在"):
-            repo.add_stock(code="600519", name="贵州茅台")
-
-    def test_get_stock_by_code(self, repo):
-        """测试按代码查询"""
-        repo.add_stock(code="600519", name="贵州茅台")
-
-        result = repo.get_stock_by_code("600519")
-        assert result is not None
-        assert result.name == "贵州茅台"
-
-    def test_get_stock_by_code_not_found(self, repo):
-        """测试查询不存在的股票"""
-        result = repo.get_stock_by_code("999999")
-        assert result is None
-
-    def test_delete_stock(self, repo):
-        """测试删除自选股"""
-        repo.add_stock(code="600519", name="贵州茅台")
-
-        repo.delete_stock("600519")
-
-        result = repo.get_stock_by_code("600519")
-        assert result is None
-
-    def test_list_stocks(self, repo):
-        """测试获取自选股列表"""
-        repo.add_stock(code="600519", name="贵州茅台")
-        repo.add_stock(code="000858", name="五粮液")
-
-        result = repo.list_stocks()
-        assert len(result) == 2
-        codes = [s.code for s in result]
-        assert "600519" in codes
-        assert "000858" in codes
-
-
-class TestWatchlistTagRepository:
-    """测试标签数据访问"""
-
-    @pytest.fixture
-    def repo(self, db_session):
-        return WatchlistRepository(db_session)
-
-    def test_create_tag(self, repo):
-        """测试创建标签"""
-        tag = repo.create_tag(name="龙头", color="#00ff88")
-        assert tag.name == "龙头"
-        assert tag.color == "#00ff88"
-
-    def test_create_tag_duplicate(self, repo):
-        """测试重复创建标签"""
-        repo.create_tag(name="龙头")
-        with pytest.raises(ValueError, match="已存在"):
-            repo.create_tag(name="龙头")
-
-    def test_list_tags(self, repo):
-        """测试获取标签列表"""
-        repo.create_tag(name="龙头")
-        repo.create_tag(name="科技")
-
-        tags = repo.list_tags()
-        assert len(tags) == 2
-
-    def test_update_tag(self, repo):
-        """测试更新标签"""
-        tag = repo.create_tag(name="龙头")
-
-        updated = repo.update_tag(tag.id, name="核心", color="#ff0000")
-        assert updated.name == "核心"
-        assert updated.color == "#ff0000"
-
-    def test_delete_tag(self, repo):
-        """测试删除标签"""
-        tag = repo.create_tag(name="龙头")
-
-        repo.delete_tag(tag.id)
-
-        tags = repo.list_tags()
-        assert len(tags) == 0
-
-    def test_add_tag_to_stock(self, repo):
-        """测试给股票添加标签"""
-        stock = repo.add_stock(code="600519", name="贵州茅台")
-        tag = repo.create_tag(name="龙头")
-
-        repo.add_tag_to_stock(stock.code, tag.id)
-
-        tags = repo.get_stock_tags(stock.code)
-        assert len(tags) == 1
-        assert tags[0].name == "龙头"
-
-    def test_remove_tag_from_stock(self, repo):
-        """测试移除股票标签"""
-        stock = repo.add_stock(code="600519")
-        tag = repo.create_tag(name="龙头")
-        repo.add_tag_to_stock(stock.code, tag.id)
-
-        repo.remove_tag_from_stock(stock.code, tag.id)
-
-        tags = repo.get_stock_tags(stock.code)
-        assert len(tags) == 0
-
-
-class TestWatchlistGroupRepository:
-    """测试分组数据访问"""
-
-    @pytest.fixture
-    def repo(self, db_session):
-        return WatchlistRepository(db_session)
-
-    def test_create_group(self, repo):
-        """测试创建分组"""
-        group = repo.create_group(name="核心持仓", sort_order=1)
-        assert group.name == "核心持仓"
-        assert group.sort_order == 1
-
-    def test_list_groups(self, repo):
-        """测试获取分组列表"""
-        repo.create_group(name="核心持仓", sort_order=1)
-        repo.create_group(name="观察股", sort_order=2)
-
-        groups = repo.list_groups()
-        assert len(groups) == 2
-        assert groups[0].name == "核心持仓"
-
-    def test_update_group(self, repo):
-        """测试更新分组"""
-        group = repo.create_group(name="核心")
-
-        updated = repo.update_group(group.id, name="核心持仓", sort_order=5)
-        assert updated.name == "核心持仓"
-        assert updated.sort_order == 5
-
-    def test_delete_group(self, repo):
-        """测试删除分组"""
-        group = repo.create_group(name="核心")
-
-        repo.delete_group(group.id)
-
-        groups = repo.list_groups()
-        assert len(groups) == 0
-
-    def test_set_stock_group(self, repo):
-        """测试设置股票分组"""
-        stock = repo.add_stock(code="600519")
-        group = repo.create_group(name="核心")
-
-        repo.set_stock_group(stock.code, group.id)
-
-        result = repo.get_stock_group(stock.code)
-        assert result is not None
-        assert result.name == "核心"
-
-    def test_remove_stock_from_group(self, repo):
-        """测试移出分组"""
-        stock = repo.add_stock(code="600519")
-        group = repo.create_group(name="核心")
-        repo.set_stock_group(stock.code, group.id)
-
-        repo.remove_stock_from_group(stock.code)
-
-        result = repo.get_stock_group(stock.code)
-        assert result is None
+        result = db_session.query(StockUserTag).first()
+        d = result.to_dict()
+        assert d['user_id'] == 'default'
+        assert d['ts_code'] == '600519.SH'
+        assert d['tag_id'] == tag.id
