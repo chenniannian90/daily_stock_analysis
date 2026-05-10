@@ -45,7 +45,13 @@ export interface ItemListResp {
 }
 
 export interface ItemSearchResp {
-  items: ItemInfo[];
+  items: ItemSearchInfo[];
+}
+
+export interface ItemSearchInfo {
+  tsCode: string;
+  name: string;
+  industry?: string;
 }
 
 // ============ Request Types ============

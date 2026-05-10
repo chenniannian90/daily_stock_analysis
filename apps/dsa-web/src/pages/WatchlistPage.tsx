@@ -1,7 +1,7 @@
 import type React from 'react';
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Tag, Trash2, X, ChevronRight, TrendingUp, TrendingDown } from 'lucide-react';
+import { Plus, Tag, Trash2, X, ChevronRight, TrendingUp, TrendingDown, FolderOpen } from 'lucide-react';
 import { watchlistApi } from '../api/watchlist';
 import type { ParsedApiError } from '../api/error';
 import { getParsedApiError } from '../api/error';
@@ -16,7 +16,7 @@ import {
   Input,
   Select,
 } from '../components/common';
-import type { GroupInfo, ItemInfo, TagItem } from '../types/watchlist';
+import type { GroupInfo, ItemInfo, TagItem, ItemSearchInfo } from '../types/watchlist';
 
 const DEFAULT_PAGE_SIZE = 20;
 
@@ -61,6 +61,10 @@ const WatchlistPage: React.FC = () => {
   const [addingStock, setAddingStock] = useState(false);
   const [addStockError, setAddStockError] = useState<string | null>(null);
 
+  // Search suggestions
+  const [searchResults, setSearchResults] = useState<ItemSearchInfo[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+
   // Manage tags drawer
   const [tagsDrawerOpen, setTagsDrawerOpen] = useState(false);
   const [newTagName, setNewTagName] = useState('');
@@ -76,6 +80,18 @@ const WatchlistPage: React.FC = () => {
   // Delete confirmation
   const [pendingDeleteItem, setPendingDeleteItem] = useState<ItemInfo | null>(null);
   const [deletingItem, setDeletingItem] = useState(false);
+
+  // Edit item tags drawer
+  const [editTagsDrawerOpen, setEditTagsDrawerOpen] = useState(false);
+  const [editingItem, setEditingItem] = useState<ItemInfo | null>(null);
+  const [selectedTagIds, setSelectedTagIds] = useState<number[]>([]);
+  const [savingTags, setSavingTags] = useState(false);
+
+  // Move item group drawer
+  const [moveGroupDrawerOpen, setMoveGroupDrawerOpen] = useState(false);
+  const [movingItem, setMovingItem] = useState<ItemInfo | null>(null);
+  const [targetGroupId, setTargetGroupId] = useState<number>(0);
+  const [movingToGroup, setMovingToGroup] = useState(false);
 
   // Create group modal
   const [showCreateGroup, setShowCreateGroup] = useState(false);
@@ -183,6 +199,91 @@ const WatchlistPage: React.FC = () => {
       setError(getParsedApiError(err));
     } finally {
       setDeletingItem(false);
+    }
+  };
+
+  // Search stocks with debounce
+  const handleSearchStocks = useCallback(async (keyword: string) => {
+    if (!keyword.trim() || keyword.length < 1) {
+      setSearchResults([]);
+      return;
+    }
+    setSearchLoading(true);
+    try {
+      const results = await watchlistApi.searchStocks(keyword, 10);
+      setSearchResults(results.items || []);
+    } catch (err) {
+      console.error('Search failed:', err);
+      setSearchResults([]);
+    } finally {
+      setSearchLoading(false);
+    }
+  }, []);
+
+  // Debounced search effect
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (newStockCode.trim()) {
+        handleSearchStocks(newStockCode);
+      } else {
+        setSearchResults([]);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [newStockCode, handleSearchStocks]);
+
+  // Select search suggestion
+  const handleSelectSearchResult = (result: ItemSearchInfo) => {
+    setNewStockCode(result.tsCode);
+    setNewStockName(result.name);
+    setSearchResults([]);
+  };
+
+  // Open edit tags drawer
+  const handleOpenEditTags = (item: ItemInfo) => {
+    setEditingItem(item);
+    setSelectedTagIds(item.tags.map(t => t.id));
+    setEditTagsDrawerOpen(true);
+  };
+
+  // Save item tags
+  const handleSaveTags = async () => {
+    if (!editingItem) return;
+    setSavingTags(true);
+    try {
+      await watchlistApi.setStockTags(editingItem.tsCode, selectedTagIds);
+      setEditTagsDrawerOpen(false);
+      setEditingItem(null);
+      await loadItems();
+    } catch (err) {
+      console.error('Save tags failed:', err);
+    } finally {
+      setSavingTags(false);
+    }
+  };
+
+  // Open move group drawer
+  const handleOpenMoveGroup = (item: ItemInfo) => {
+    setMovingItem(item);
+    setTargetGroupId(selectedGroupId === 'all' ? 0 : selectedGroupId);
+    setMoveGroupDrawerOpen(true);
+  };
+
+  // Move item to group
+  const handleMoveToGroup = async () => {
+    if (!movingItem) return;
+    setMovingToGroup(true);
+    try {
+      const currentGroupId = selectedGroupId === 'all' ? 0 : selectedGroupId;
+      await watchlistApi.moveItem(movingItem.tsCode, currentGroupId, targetGroupId);
+      setMoveGroupDrawerOpen(false);
+      setMovingItem(null);
+      await loadItems();
+      await loadGroups();
+    } catch (err) {
+      console.error('Move failed:', err);
+    } finally {
+      setMovingToGroup(false);
     }
   };
 
@@ -487,20 +588,49 @@ const WatchlistPage: React.FC = () => {
                         ) : null}
                       </div>
                     </div>
-                    <div className="flex items-center gap-1">
+                    <div className="flex flex-col items-end gap-1">
                       <ChevronRight className="h-4 w-4 text-secondary-text group-hover:text-cyan transition-colors" />
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setPendingDeleteItem(item);
-                        }}
-                        onKeyDown={(e) => e.stopPropagation()}
-                        className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-secondary-text hover:text-danger hover:bg-danger/10 transition-all"
-                        aria-label="删除"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
+                      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenEditTags(item);
+                          }}
+                          onKeyDown={(e) => e.stopPropagation()}
+                          className="p-1 rounded text-secondary-text hover:text-cyan hover:bg-cyan/10 transition-all"
+                          aria-label="打标签"
+                          title="打标签"
+                        >
+                          <Tag className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenMoveGroup(item);
+                          }}
+                          onKeyDown={(e) => e.stopPropagation()}
+                          className="p-1 rounded text-secondary-text hover:text-cyan hover:bg-cyan/10 transition-all"
+                          aria-label="移动分组"
+                          title="移动分组"
+                        >
+                          <FolderOpen className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setPendingDeleteItem(item);
+                          }}
+                          onKeyDown={(e) => e.stopPropagation()}
+                          className="p-1 rounded text-secondary-text hover:text-danger hover:bg-danger/10 transition-all"
+                          aria-label="删除"
+                          title="删除"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </Card>
@@ -543,6 +673,7 @@ const WatchlistPage: React.FC = () => {
           setNewStockCode('');
           setNewStockName('');
           setAddStockError(null);
+          setSearchResults([]);
         }}
         title="添加自选股"
       >
@@ -554,13 +685,40 @@ const WatchlistPage: React.FC = () => {
           />
         ) : null}
         <form onSubmit={handleAddStock} className="space-y-4">
-          <Input
-            label="股票代码"
-            value={newStockCode}
-            onChange={(e) => setNewStockCode(e.target.value)}
-            placeholder="如 600519、hk00700、AAPL"
-            required
-          />
+          <div className="relative">
+            <Input
+              label="股票代码"
+              value={newStockCode}
+              onChange={(e) => setNewStockCode(e.target.value)}
+              placeholder="输入代码/名称/拼音搜索"
+              required
+            />
+            {/* Search suggestions */}
+            {(searchResults.length > 0 || searchLoading) && (
+              <div className="absolute z-10 w-full mt-1 bg-base border border-border rounded-lg shadow-lg max-h-60 overflow-auto">
+                {searchLoading ? (
+                  <div className="p-3 text-center text-secondary-text text-sm">搜索中...</div>
+                ) : (
+                  searchResults.map((result) => (
+                    <button
+                      key={result.tsCode}
+                      type="button"
+                      className="w-full px-3 py-2 text-left hover:bg-surface transition-colors flex items-center justify-between"
+                      onClick={() => handleSelectSearchResult(result)}
+                    >
+                      <div>
+                        <span className="font-mono text-sm text-foreground">{result.tsCode}</span>
+                        <span className="ml-2 text-sm text-secondary-text">{result.name}</span>
+                      </div>
+                      {result.industry && (
+                        <span className="text-xs text-secondary-text">{result.industry}</span>
+                      )}
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
           <Input
             label="股票名称"
             value={newStockName}
@@ -576,6 +734,7 @@ const WatchlistPage: React.FC = () => {
                 setNewStockCode('');
                 setNewStockName('');
                 setAddStockError(null);
+                setSearchResults([]);
               }}
             >
               取消
@@ -589,6 +748,121 @@ const WatchlistPage: React.FC = () => {
             </button>
           </div>
         </form>
+      </Drawer>
+
+      {/* Edit Tags Drawer */}
+      <Drawer
+        isOpen={editTagsDrawerOpen}
+        onClose={() => {
+          setEditTagsDrawerOpen(false);
+          setEditingItem(null);
+          setSelectedTagIds([]);
+        }}
+        title={`编辑标签 - ${editingItem?.name || editingItem?.tsCode || ''}`}
+      >
+        <div className="space-y-4">
+          <div className="text-sm text-secondary-text mb-2">选择标签</div>
+          {tags.length === 0 ? (
+            <div className="text-sm text-secondary-text">暂无标签，请先创建标签</div>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {tags.map((tag) => (
+                <button
+                  key={tag.id}
+                  type="button"
+                  className={`px-3 py-1.5 rounded-full text-sm transition-all ${
+                    selectedTagIds.includes(tag.id)
+                      ? 'bg-cyan text-base'
+                      : 'bg-surface text-secondary-text hover:bg-cyan/20'
+                  }`}
+                  onClick={() => {
+                    setSelectedTagIds((prev) =>
+                      prev.includes(tag.id)
+                        ? prev.filter((id) => id !== tag.id)
+                        : [...prev, tag.id]
+                    );
+                  }}
+                >
+                  {tag.name}
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="flex gap-3 pt-4">
+            <button
+              type="button"
+              className="btn-secondary flex-1"
+              onClick={() => {
+                setEditTagsDrawerOpen(false);
+                setEditingItem(null);
+                setSelectedTagIds([]);
+              }}
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              className="btn-primary flex-1"
+              disabled={savingTags}
+              onClick={handleSaveTags}
+            >
+              {savingTags ? '保存中...' : '保存'}
+            </button>
+          </div>
+        </div>
+      </Drawer>
+
+      {/* Move Group Drawer */}
+      <Drawer
+        isOpen={moveGroupDrawerOpen}
+        onClose={() => {
+          setMoveGroupDrawerOpen(false);
+          setMovingItem(null);
+        }}
+        title={`移动分组 - ${movingItem?.name || movingItem?.tsCode || ''}`}
+      >
+        <div className="space-y-4">
+          <div className="text-sm text-secondary-text mb-2">选择目标分组</div>
+          <div className="space-y-2">
+            {groups.map((group) => (
+              <button
+                key={group.id}
+                type="button"
+                className={`w-full px-4 py-3 text-left rounded-lg transition-all ${
+                  targetGroupId === group.id
+                    ? 'bg-cyan/20 border border-cyan'
+                    : 'bg-surface border border-border hover:border-cyan/50'
+                }`}
+                onClick={() => setTargetGroupId(group.id)}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-medium text-foreground">{group.name}</span>
+                  <span className="text-xs text-secondary-text">{group.stockCount} 只</span>
+                </div>
+              </button>
+            ))}
+          </div>
+          <div className="flex gap-3 pt-4">
+            <button
+              type="button"
+              className="btn-secondary flex-1"
+              onClick={() => {
+                setMoveGroupDrawerOpen(false);
+                setMovingItem(null);
+              }}
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              className="btn-primary flex-1"
+              disabled={movingToGroup}
+              onClick={handleMoveToGroup}
+            >
+              {movingToGroup ? '移动中...' : '确认移动'}
+            </button>
+          </div>
+        </div>
       </Drawer>
 
       {/* Manage Tags Drawer */}

@@ -73,11 +73,11 @@ export const watchlistApi = {
     await apiClient.put(`${BASE}/item/sort`, { groupId, items });
   },
 
-  searchStocks: async (keyword: string, limit = 10): Promise<ItemInfo[]> => {
+  searchStocks: async (keyword: string, limit = 10): Promise<ItemSearchResp> => {
     const response = await apiClient.get<ItemSearchResp>(
-      `${BASE}/item/search?keyword=${keyword}&limit=${limit}`
+      `${BASE}/item/search?keyword=${encodeURIComponent(keyword)}&limit=${limit}`
     );
-    return response.data.items || [];
+    return response.data;
   },
 
   // ============ Legacy Stock Operations ============
