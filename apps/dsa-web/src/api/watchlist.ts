@@ -1,6 +1,7 @@
 import apiClient from './index';
 import type {
   TagItem,
+  TagInfo,
   TagCreate,
   TagUpdate,
   GroupItem,
@@ -112,6 +113,11 @@ export const watchlistApi = {
     if (params?.page) query.set('page', String(params.page));
     if (params?.limit) query.set('limit', String(params.limit));
     const response = await apiClient.get<StockHistoryResponse>(`${BASE}/stocks/${code}/history?${query}`);
+    return response.data;
+  },
+
+  getStockTags: async (code: string): Promise<TagInfo[]> => {
+    const response = await apiClient.get<TagInfo[]>(`${BASE}/stocks/${code}/tags`);
     return response.data;
   },
 

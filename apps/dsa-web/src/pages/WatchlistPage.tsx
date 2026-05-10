@@ -15,6 +15,7 @@ import {
   InlineAlert,
   Input,
   Select,
+  TagPickerDrawer,
 } from '../components/common';
 import type { GroupInfo, ItemInfo, TagItem, ItemSearchInfo } from '../types/watchlist';
 
@@ -26,13 +27,14 @@ const formatNumber = (num: number | undefined, decimals = 2): string => {
   return num.toFixed(decimals);
 };
 
-// Format market value (亿)
+// Format market value (backend returns 元, convert to 亿 first)
 const formatMarketValue = (mv: number | undefined): string => {
   if (mv === undefined || mv === null) return '--';
-  if (mv >= 10000) {
-    return `${(mv / 10000).toFixed(2)}万亿`;
+  const yi = mv / 100000000;
+  if (yi >= 10000) {
+    return `${(yi / 10000).toFixed(2)}万亿`;
   }
-  return `${mv.toFixed(2)}亿`;
+  return `${yi.toFixed(2)}亿`;
 };
 
 const WatchlistPage: React.FC = () => {
@@ -86,6 +88,7 @@ const WatchlistPage: React.FC = () => {
   const [editingItem, setEditingItem] = useState<ItemInfo | null>(null);
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>([]);
   const [savingTags, setSavingTags] = useState(false);
+  const [tagSaveError, setTagSaveError] = useState<string | null>(null);
 
   // Move item group drawer
   const [moveGroupDrawerOpen, setMoveGroupDrawerOpen] = useState(false);
@@ -98,6 +101,15 @@ const WatchlistPage: React.FC = () => {
   const [newGroupName, setNewGroupName] = useState('');
   const [creatingGroup, setCreatingGroup] = useState(false);
   const [groupError, setGroupError] = useState<string | null>(null);
+
+  // Edit group
+  const [editingGroupId, setEditingGroupId] = useState<number | null>(null);
+  const [editGroupName, setEditGroupName] = useState('');
+  const [updatingGroup, setUpdatingGroup] = useState(false);
+
+  // Delete group
+  const [deletingGroupId, setDeletingGroupId] = useState<number | null>(null);
+  const [deletingGroup, setDeletingGroup] = useState(false);
 
   const totalPages = Math.max(1, Math.ceil(totalItems / DEFAULT_PAGE_SIZE));
 
@@ -243,6 +255,7 @@ const WatchlistPage: React.FC = () => {
   const handleOpenEditTags = (item: ItemInfo) => {
     setEditingItem(item);
     setSelectedTagIds(item.tags.map(t => t.id));
+    setTagSaveError(null);
     setEditTagsDrawerOpen(true);
   };
 
@@ -250,13 +263,14 @@ const WatchlistPage: React.FC = () => {
   const handleSaveTags = async () => {
     if (!editingItem) return;
     setSavingTags(true);
+    setTagSaveError(null);
     try {
       await watchlistApi.setStockTags(editingItem.tsCode, selectedTagIds);
       setEditTagsDrawerOpen(false);
       setEditingItem(null);
       await loadItems();
-    } catch (err) {
-      console.error('Save tags failed:', err);
+    } catch (err: any) {
+      setTagSaveError(err?.message || '保存标签失败');
     } finally {
       setSavingTags(false);
     }
@@ -366,7 +380,48 @@ const WatchlistPage: React.FC = () => {
     }
   };
 
-  // Navigate to stock detail
+  // Update group
+  const handleUpdateGroup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editGroupName.trim() || !editingGroupId) {
+      setGroupError('请输入分组名称');
+      return;
+    }
+    setUpdatingGroup(true);
+    setGroupError(null);
+    try {
+      await watchlistApi.updateGroup(editingGroupId, editGroupName.trim());
+      setEditingGroupId(null);
+      setEditGroupName('');
+      await loadGroups();
+    } catch (err) {
+      setGroupError(getParsedApiError(err).message || '更新失败');
+    } finally {
+      setUpdatingGroup(false);
+    }
+  };
+
+  // Delete group
+  const handleDeleteGroup = async () => {
+    if (!deletingGroupId) return;
+    setDeletingGroup(true);
+    try {
+      const deletedId = deletingGroupId;
+      await watchlistApi.deleteGroup(deletedId);
+      setDeletingGroupId(null);
+      // Reset to "all" view if the deleted group was selected
+      if (selectedGroupId === deletedId) {
+        setSelectedGroupId('all');
+      }
+      await loadGroups();
+      await loadItems();
+    } catch (err) {
+      setDeletingGroupId(null);
+      setGroupError(getParsedApiError(err).message || '删除失败');
+    } finally {
+      setDeletingGroup(false);
+    }
+  };
   const goToDetail = (tsCode: string) => {
     navigate(`/watchlist/${tsCode}`);
   };
@@ -388,7 +443,7 @@ const WatchlistPage: React.FC = () => {
       <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
         <div className="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-3">
           {/* Group tabs */}
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2 items-center">
             <button
               type="button"
               onClick={() => setSelectedGroupId('all')}
@@ -400,19 +455,50 @@ const WatchlistPage: React.FC = () => {
             >
               全部
             </button>
-            {groups.map((group) => (
-              <button
+            {groups.filter(g => g.id !== 0).map((group) => (
+              <div
                 key={group.id}
-                type="button"
-                onClick={() => setSelectedGroupId(group.id)}
-                className={`px-3 py-1.5 rounded-lg text-sm transition-all ${
+                className={`flex items-center rounded-lg text-sm transition-all ${
                   selectedGroupId === group.id
                     ? 'bg-cyan/20 text-cyan border border-cyan/30'
                     : 'bg-white/5 text-secondary-text border border-white/10 hover:bg-white/10'
                 }`}
               >
-                {group.name} ({group.stockCount})
-              </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedGroupId(group.id)}
+                  className="px-3 py-1.5"
+                >
+                  {group.name} ({group.stockCount})
+                </button>
+                {selectedGroupId === group.id && (
+                  <div className="flex items-center pr-1">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditingGroupId(group.id);
+                        setEditGroupName(group.name);
+                      }}
+                      className="p-0.5 text-secondary-text hover:text-cyan transition-colors"
+                      title="重命名"
+                    >
+                      <Tag className="h-3 w-3 rotate-90" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setDeletingGroupId(group.id);
+                      }}
+                      className="p-0.5 text-secondary-text hover:text-danger transition-colors"
+                      title="删除"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                )}
+              </div>
             ))}
             <button
               type="button"
@@ -423,6 +509,48 @@ const WatchlistPage: React.FC = () => {
               新建分组
             </button>
           </div>
+
+          {/* Rename group inline form */}
+          {editingGroupId != null ? (
+            <div className="flex items-center gap-2 mt-2">
+              <form onSubmit={handleUpdateGroup} className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={editGroupName}
+                  onChange={(e) => setEditGroupName(e.target.value)}
+                  placeholder="输入新名称"
+                  className="input-surface h-8 w-40 rounded border bg-transparent px-3 text-sm"
+                  autoFocus
+                />
+                <button
+                  type="submit"
+                  className="btn-secondary text-xs px-3 py-1.5"
+                  disabled={updatingGroup}
+                >
+                  {updatingGroup ? '保存中...' : '保存'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingGroupId(null);
+                    setGroupError(null);
+                  }}
+                  className="text-xs text-secondary-text hover:text-foreground"
+                >
+                  取消
+                </button>
+              </form>
+            </div>
+          ) : null}
+
+          {/* Group error */}
+          {groupError ? (
+            <InlineAlert
+              variant="danger"
+              className="mt-2 rounded-lg px-3 py-2 text-xs shadow-none"
+              message={groupError}
+            />
+          ) : null}
 
           {/* Tag filter */}
           <Select
@@ -590,7 +718,7 @@ const WatchlistPage: React.FC = () => {
                     </div>
                     <div className="flex flex-col items-end gap-1">
                       <ChevronRight className="h-4 w-4 text-secondary-text group-hover:text-cyan transition-colors" />
-                      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className="flex items-center gap-0.5">
                         <button
                           type="button"
                           onClick={(e) => {
@@ -751,66 +879,29 @@ const WatchlistPage: React.FC = () => {
       </Drawer>
 
       {/* Edit Tags Drawer */}
-      <Drawer
+      <TagPickerDrawer
         isOpen={editTagsDrawerOpen}
         onClose={() => {
           setEditTagsDrawerOpen(false);
           setEditingItem(null);
           setSelectedTagIds([]);
+          setTagSaveError(null);
         }}
+        tags={tags}
+        selectedTagIds={selectedTagIds}
+        onToggleTag={(tagId: number) => {
+          setSelectedTagIds((prev) =>
+            prev.includes(tagId)
+              ? prev.filter((id) => id !== tagId)
+              : [...prev, tagId]
+          );
+        }}
+        onSave={() => { handleSaveTags(); }}
+        saving={savingTags}
         title={`编辑标签 - ${editingItem?.name || editingItem?.tsCode || ''}`}
-      >
-        <div className="space-y-4">
-          <div className="text-sm text-secondary-text mb-2">选择标签</div>
-          {tags.length === 0 ? (
-            <div className="text-sm text-secondary-text">暂无标签，请先创建标签</div>
-          ) : (
-            <div className="flex flex-wrap gap-2">
-              {tags.map((tag) => (
-                <button
-                  key={tag.id}
-                  type="button"
-                  className={`px-3 py-1.5 rounded-full text-sm transition-all ${
-                    selectedTagIds.includes(tag.id)
-                      ? 'bg-cyan text-base'
-                      : 'bg-surface text-secondary-text hover:bg-cyan/20'
-                  }`}
-                  onClick={() => {
-                    setSelectedTagIds((prev) =>
-                      prev.includes(tag.id)
-                        ? prev.filter((id) => id !== tag.id)
-                        : [...prev, tag.id]
-                    );
-                  }}
-                >
-                  {tag.name}
-                </button>
-              ))}
-            </div>
-          )}
-          <div className="flex gap-3 pt-4">
-            <button
-              type="button"
-              className="btn-secondary flex-1"
-              onClick={() => {
-                setEditTagsDrawerOpen(false);
-                setEditingItem(null);
-                setSelectedTagIds([]);
-              }}
-            >
-              取消
-            </button>
-            <button
-              type="button"
-              className="btn-primary flex-1"
-              disabled={savingTags}
-              onClick={handleSaveTags}
-            >
-              {savingTags ? '保存中...' : '保存'}
-            </button>
-          </div>
-        </div>
-      </Drawer>
+        error={tagSaveError}
+        onDismissError={() => setTagSaveError(null)}
+      />
 
       {/* Move Group Drawer */}
       <Drawer
@@ -1021,6 +1112,18 @@ const WatchlistPage: React.FC = () => {
           }
         }}
         onCancel={() => setDeletingTagId(null)}
+      />
+
+      {/* Delete Group Confirmation */}
+      <ConfirmDialog
+        isOpen={!!deletingGroupId}
+        title="删除分组"
+        message="确认删除这个分组吗？分组内的股票条目也会被移除。"
+        confirmText={deletingGroup ? '删除中...' : '确认删除'}
+        cancelText="取消"
+        isDanger
+        onConfirm={() => { handleDeleteGroup(); }}
+        onCancel={() => setDeletingGroupId(null)}
       />
     </div>
   );

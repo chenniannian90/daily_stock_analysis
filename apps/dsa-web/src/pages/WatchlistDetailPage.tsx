@@ -1,7 +1,7 @@
 import type React from 'react';
 import { useCallback, useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, TrendingUp, TrendingDown, Minus } from 'lucide-react';
+import { ArrowLeft, TrendingUp, TrendingDown, Minus, Tag } from 'lucide-react';
 import { watchlistApi } from '../api/watchlist';
 import type { ParsedApiError } from '../api/error';
 import { getParsedApiError } from '../api/error';
@@ -12,8 +12,9 @@ import {
   EmptyState,
   Pagination,
   StatCard,
+  TagPickerDrawer,
 } from '../components/common';
-import type { StockHistoryResponse, AnalysisHistoryItem } from '../types/watchlist';
+import type { StockHistoryResponse, AnalysisHistoryItem, TagItem, TagInfo } from '../types/watchlist';
 
 const DEFAULT_PAGE_SIZE = 10;
 
@@ -31,6 +32,14 @@ const WatchlistDetailPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<ParsedApiError | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
+
+  // Tags state
+  const [allTags, setAllTags] = useState<TagItem[]>([]);
+  const [stockTags, setStockTags] = useState<TagInfo[]>([]);
+  const [tagsDrawerOpen, setTagsDrawerOpen] = useState(false);
+  const [selectedTagIds, setSelectedTagIds] = useState<number[]>([]);
+  const [savingTags, setSavingTags] = useState(false);
+  const [tagError, setTagError] = useState<string | null>(null);
 
   const totalPages = historyData ? Math.max(1, Math.ceil(historyData.total / DEFAULT_PAGE_SIZE)) : 1;
 
@@ -52,13 +61,54 @@ const WatchlistDetailPage: React.FC = () => {
     }
   }, [code]);
 
+  // Load tags
+  const loadTags = useCallback(async () => {
+    if (!code) return;
+    try {
+      const [all, stock] = await Promise.all([
+        watchlistApi.getTags(),
+        watchlistApi.getStockTags(code),
+      ]);
+      setAllTags(all || []);
+      setStockTags(stock || []);
+    } catch (err) {
+      console.error('Failed to load tags:', err);
+    }
+  }, [code]);
+
   useEffect(() => {
     void loadHistory(currentPage);
-  }, [loadHistory, currentPage]);
+    void loadTags();
+  }, [loadHistory, loadTags, currentPage]);
 
   // Go back to list
   const goBack = () => {
     navigate('/watchlist');
+  };
+
+  // Open tags drawer
+  const handleOpenTagsDrawer = () => {
+    setSelectedTagIds(stockTags.map(t => t.id));
+    setTagError(null);
+    setTagsDrawerOpen(true);
+  };
+
+  // Save tags
+  const handleSaveTags = async () => {
+    if (!code) return;
+    setSavingTags(true);
+    setTagError(null);
+    try {
+      await watchlistApi.setStockTags(code, selectedTagIds);
+      setTagsDrawerOpen(false);
+      // Reload stock tags
+      const updated = await watchlistApi.getStockTags(code);
+      setStockTags(updated || []);
+    } catch (err: any) {
+      setTagError(err?.message || '保存失败');
+    } finally {
+      setSavingTags(false);
+    }
   };
 
   // Format prediction display
@@ -114,11 +164,6 @@ const WatchlistDetailPage: React.FC = () => {
           {code ? (
             <>
               <span className="font-mono">{code}</span>
-              {historyData?.items?.[0]?.analysisDate ? (
-                <span className="ml-2 text-sm font-normal text-secondary-text">
-                  历史分析记录
-                </span>
-              ) : null}
             </>
           ) : (
             '自选股详情'
@@ -131,6 +176,34 @@ const WatchlistDetailPage: React.FC = () => {
 
       {/* Error alert */}
       {error ? <ApiErrorAlert error={error} onDismiss={() => setError(null)} /> : null}
+
+      {/* Tags card */}
+      <Card padding="md">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Tag className="h-4 w-4 text-secondary-text" />
+            <span className="text-sm font-medium text-foreground">标签</span>
+          </div>
+          <button
+            type="button"
+            onClick={handleOpenTagsDrawer}
+            className="text-sm text-cyan hover:text-white transition-colors"
+          >
+            编辑标签
+          </button>
+        </div>
+        <div className="mt-3 flex flex-wrap gap-1.5 min-h-[28px]">
+          {stockTags.length === 0 ? (
+            <span className="text-xs text-muted-text">暂无标签，点击"编辑标签"添加</span>
+          ) : (
+            stockTags.map(tag => (
+              <Badge key={tag.id} variant="default" size="sm">
+                {tag.name}
+              </Badge>
+            ))
+          )}
+        </div>
+      </Card>
 
       {/* Accuracy Stats Cards */}
       {stats ? (
@@ -277,6 +350,26 @@ const WatchlistDetailPage: React.FC = () => {
           </>
         )}
       </Card>
+
+      {/* Tags Drawer */}
+      <TagPickerDrawer
+        isOpen={tagsDrawerOpen}
+        onClose={() => setTagsDrawerOpen(false)}
+        tags={allTags}
+        selectedTagIds={selectedTagIds}
+        onToggleTag={(tagId) => {
+          setSelectedTagIds((prev) =>
+            prev.includes(tagId)
+              ? prev.filter((id) => id !== tagId)
+              : [...prev, tagId]
+          );
+        }}
+        onSave={() => { handleSaveTags(); }}
+        saving={savingTags}
+        title={`编辑标签 - ${code || ''}`}
+        error={tagError}
+        onDismissError={() => setTagError(null)}
+      />
     </div>
   );
 };

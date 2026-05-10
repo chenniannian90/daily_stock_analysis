@@ -225,6 +225,10 @@ class WatchlistService:
         """删除标签"""
         return self.repo.delete_tag(tag_id)
 
+    def get_stock_tags(self, ts_code: str) -> List[Any]:
+        """获取股票的标签"""
+        return self.repo.get_stock_tags(ts_code)
+
     def set_stock_tags(self, ts_code: str, tag_ids: List[int]) -> bool:
         """设置股票的标签（替换所有标签）"""
         # 校验请求的 tag ID 都存在
@@ -370,25 +374,72 @@ class WatchlistService:
 
         return result
 
+    @staticmethod
+    def _infer_exchange(code: str, stocks_index: list = None) -> str:
+        """推断股票代码的交易所后缀。优先查本地索引，其次用规则推断。"""
+        code_upper = code.upper()
+        # 1. 尝试从本地索引精确匹配（仅当代码长度 >= 4 以避免前缀歧义）
+        if len(code_upper) >= 4 and stocks_index is not None:
+            try:
+                for entry in stocks_index:
+                    if len(entry) >= 3 and entry[0]:
+                        idx_code = entry[0].upper()
+                        idx_parts = idx_code.rsplit('.', 1)
+                        idx_pure = idx_parts[0] if len(idx_parts) > 1 else idx_code
+                        if idx_pure == code_upper:
+                            if idx_code.endswith('.SH'):
+                                return '.SH'
+                            if idx_code.endswith('.SZ'):
+                                return '.SZ'
+                            break
+            except Exception:
+                pass
+
+        # 2. 基于前缀规则推断: 6开头→上海, 0/3开头→深圳
+        if code_upper.startswith('6'):
+            return '.SH'
+        if code_upper.startswith(('0', '3')):
+            return '.SZ'
+
+        return ''
+
     def _fetch_quotes(self, ts_codes: List[str]) -> Dict[str, Dict[str, Any]]:
         """批量获取行情数据（腾讯 HTTP API 一次拉取，~200ms）"""
-        result = {}
+        result: Dict[str, Dict[str, Any]] = {}
         if not ts_codes:
             return result
 
         import urllib.request
         import time as _time
 
-        # 构造腾讯行情 API 批量请求: sh600519,sz000001,...
-        symbols = []
+        # 预加载股票索引（用于无后缀代码推断），整个请求周期只加载一次
+        stocks_index = _load_stocks_index()
+
+        # 构造腾讯行情 API 批量请求，同时建立腾讯符号 -> 原始 ts_code 反向映射
+        symbols: List[str] = []
+        tencent_to_tscode: Dict[str, str] = {}
         for code in ts_codes:
             code_upper = code.upper()
             if code_upper.endswith('.SH'):
-                symbols.append(f'sh{code_upper[:-3]}')
+                sym = f'sh{code_upper[:-3]}'
+                symbols.append(sym)
+                tencent_to_tscode[sym] = code
             elif code_upper.endswith('.SZ'):
-                symbols.append(f'sz{code_upper[:-3]}')
+                sym = f'sz{code_upper[:-3]}'
+                symbols.append(sym)
+                tencent_to_tscode[sym] = code
             else:
-                symbols.append(code_upper.lower())
+                # 无后缀，尝试从本地索引推断交易所
+                suffix = self._infer_exchange(code_upper, stocks_index)
+                if suffix:
+                    prefix = 'sh' if suffix == '.SH' else 'sz'
+                    sym = f'{prefix}{code_upper}'
+                    symbols.append(sym)
+                    tencent_to_tscode[sym] = code
+                else:
+                    # 无法推断，尝试原样发送
+                    symbols.append(code_upper.lower())
+                    tencent_to_tscode[code_upper.lower()] = code
 
         if not symbols:
             return result
@@ -419,13 +470,16 @@ class WatchlistService:
                     if len(fields) < 45:
                         continue
 
-                    # 重建 tsCode: sh600519 -> 600519.SH
-                    if sym.startswith('sh'):
-                        ts_code = sym[2:] + '.SH'
-                    elif sym.startswith('sz'):
-                        ts_code = sym[2:] + '.SZ'
-                    else:
-                        ts_code = sym
+                    # 使用反向映射还原原始 ts_code
+                    ts_code = tencent_to_tscode.get(sym)
+                    if not ts_code:
+                        # Fallback: 从未知 sym 重建
+                        if sym.startswith('sh'):
+                            ts_code = sym[2:] + '.SH'
+                        elif sym.startswith('sz'):
+                            ts_code = sym[2:] + '.SZ'
+                        else:
+                            ts_code = sym
 
                     price = float(fields[3]) if fields[3] else None
                     change_pct = float(fields[32]) if fields[32] else None
