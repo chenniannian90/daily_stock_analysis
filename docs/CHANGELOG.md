@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 <!-- 新条目格式：- [类型] 描述（类型取值：新功能/改进/修复/文档/测试/chore）-->
 <!-- 每条独立一行追加到本段末尾，无需分类标题，合并时冲突最小 -->
+- [新功能] 自选股升级：支持一股多分组、行情数据展示、股票搜索、条目移动与排序。
+- [新功能] 自选股 API 重构：新增 `/watchlist/group/*` 和 `/watchlist/item/*` 接口，支持分组排序和条目置顶/置底。
+- [改进] 自选股列表展示实时行情（收盘价、涨跌幅、市值、换手率）。
+- [chore] 新增 `scripts/migrate_watchlist.py` 数据迁移脚本，支持旧表数据迁移到新多分组结构。
 - [改进] Docker 镜像支持非 root 用户 (`dsa`, UID 1000) 执行，并增强 `Dockerfile` 安全性与构建稳健性。
 - [改进] 放宽 LiteLLM 依赖约束，保留 `>=1.80.10` 最低版本并显式排除 PyPI 事故版本 `1.82.7` / `1.82.8`，允许安装后续 1.x 修复版本。
 - [改进] 补齐通知渠道 P0 基线、Actions 映射与 `--check-notify` 只读诊断，完善 AstrBot 配置入口和通知回归快照。
