@@ -6,6 +6,8 @@ import logging
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
+import pandas as pd
+
 from sqlalchemy.orm import Session
 
 from data_provider.base import DataFetcherManager
@@ -369,43 +371,55 @@ class WatchlistService:
         return result
 
     def _fetch_quotes(self, ts_codes: List[str]) -> Dict[str, Dict[str, Any]]:
-        """批量获取行情数据（并行 + 跳过慢速数据源）"""
+        """批量获取行情数据（一次全市场拉取 + 本地过滤）"""
         result = {}
         if not ts_codes:
             return result
 
-        from concurrent.futures import ThreadPoolExecutor, as_completed
+        try:
+            import time as _time
+            import efinance as ef
+            from data_provider.efinance_fetcher import _ef_call_with_timeout
 
-        def _fetch_one(code: str) -> tuple:
-            try:
-                from data_provider.efinance_fetcher import EfinanceFetcher
-                from data_provider.akshare_fetcher import AkshareFetcher
-                # Watchlist 只用快速的 HTTP 源，跳过 Tushare（login/logout 开销大）
-                fetcher = DataFetcherManager(fetchers=[
-                    EfinanceFetcher(),
-                    AkshareFetcher(),
-                ])
-                quote = fetcher.get_realtime_quote(code, log_final_failure=False)
-                if quote and quote.has_basic_data():
-                    return (code, {
-                        'close': quote.price,
-                        'changePct': quote.change_pct,
-                        'totalMv': quote.total_mv,
-                        'turnoverRate': quote.turnover_rate,
-                    })
-            except Exception:
-                pass
-            return (code, None)
+            # efinance 一次拉取全市场实时行情（~0.5s），本地过滤，无逐股 sleep
+            t0 = _time.time()
+            df = _ef_call_with_timeout(ef.stock.get_realtime_quotes)
+            elapsed = _time.time() - t0
+            logger.info(f"全市场行情拉取完成: {len(df)} 只, 耗时 {elapsed:.2f}s")
 
-        max_workers = min(len(ts_codes), 8)
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = {executor.submit(_fetch_one, code): code for code in ts_codes}
-            for future in as_completed(futures):
+            code_col = '股票代码' if '股票代码' in df.columns else 'code'
+            name_col = '股票名称' if '股票名称' in df.columns else 'name'
+            price_col = '最新价' if '最新价' in df.columns else 'price'
+            pct_col = '涨跌幅' if '涨跌幅' in df.columns else 'pct_chg'
+            turn_col = '换手率' if '换手率' in df.columns else 'turnover_rate'
+            mv_col = '总市值' if '总市值' in df.columns else 'total_mv'
+
+            for code in ts_codes:
+                row = df[df[code_col] == code]
+                if row.empty:
+                    continue
+                r = row.iloc[0]
+                result[code] = {
+                    'close': float(r[price_col]) if pd.notna(r.get(price_col)) else None,
+                    'changePct': float(r[pct_col]) if pd.notna(r.get(pct_col)) else None,
+                    'totalMv': float(r[mv_col]) if mv_col in df.columns and pd.notna(r.get(mv_col)) else None,
+                    'turnoverRate': float(r[turn_col]) if pd.notna(r.get(turn_col)) else None,
+                }
+        except Exception as e:
+            logger.warning(f"efinance 全量行情获取失败: {e}，回退到串行取数")
+            from data_provider.base import DataFetcherManager
+            fetcher = DataFetcherManager()
+            for code in ts_codes:
                 try:
-                    code, data = future.result()
-                    if data is not None:
-                        result[code] = data
-                except Exception as e:
-                    logger.debug(f"并行获取行情异常: {e}")
+                    quote = fetcher.get_realtime_quote(code, log_final_failure=False)
+                    if quote and quote.has_basic_data():
+                        result[code] = {
+                            'close': quote.price,
+                            'changePct': quote.change_pct,
+                            'totalMv': quote.total_mv,
+                            'turnoverRate': quote.turnover_rate,
+                        }
+                except Exception:
+                    pass
 
         return result
