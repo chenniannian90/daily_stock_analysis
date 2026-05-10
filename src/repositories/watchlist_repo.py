@@ -65,9 +65,13 @@ class WatchlistRepository:
         group = self.get_group_by_id(group_id)
         if not group:
             return None
-        group.name = name
-        self._session.commit()
-        return group
+        try:
+            group.name = name
+            self._session.commit()
+            return group
+        except IntegrityError:
+            self._session.rollback()
+            raise ValueError(f"分组 '{name}' 已存在")
 
     def delete_group(self, group_id: int) -> bool:
         """删除分组（同时删除该分组下的条目）"""
@@ -337,7 +341,19 @@ class WatchlistRepository:
 
     def get_all_stock_tags(self, ts_codes: List[str]) -> Dict[str, List[UserTag]]:
         """批量获取多只股票的标签"""
-        result = {}
-        for code in ts_codes:
-            result[code] = self.get_stock_tags(code)
+        if not ts_codes:
+            return {}
+
+        results = self._session.execute(
+            select(StockUserTag.ts_code, UserTag)
+            .join(UserTag, StockUserTag.tag_id == UserTag.id)
+            .where(
+                StockUserTag.user_id == self._user_id,
+                StockUserTag.ts_code.in_(ts_codes),
+            )
+        ).all()
+
+        result = {code: [] for code in ts_codes}
+        for ts_code, tag in results:
+            result[ts_code].append(tag)
         return result
