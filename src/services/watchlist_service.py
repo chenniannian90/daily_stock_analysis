@@ -377,7 +377,10 @@ class WatchlistService:
             return result
 
         try:
+            import os
             import time as _time
+            # 容器内 efinance 默认 data 目录无写权限，指向 /tmp
+            os.environ.setdefault('EFINANCE_HOME', '/tmp/efinance')
             import efinance as ef
             from data_provider.efinance_fetcher import _ef_call_with_timeout
 
