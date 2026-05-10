@@ -1,167 +1,154 @@
 # -*- coding: utf-8 -*-
 """自选股 API Schema 定义"""
 
-import re
-from datetime import datetime
-from typing import List, Optional
+from typing import List, Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
 
-def validate_stock_code(code: str) -> str:
-    """验证股票代码格式"""
-    code = code.strip().upper()
-    # A股: 6位数字
-    # 港股: HK + 5位数字
-    # 美股: 1-5位大写字母
-    if not re.match(r'^(\d{6}|HK\d{5}|[A-Z]{1,5})$', code):
-        raise ValueError('股票代码格式无效，支持: 6位数字(A股)、HK+5位数字(港股)、1-5位字母(美股)')
-    return code
+# ========== 通用响应 ==========
 
-
-def validate_hex_color(color: str) -> str:
-    """验证颜色格式"""
-    if not re.match(r'^#[0-9A-Fa-f]{6}$', color):
-        raise ValueError('颜色格式无效，应为 #RRGGBB 格式')
-    return color
-
-
-# ========== 标签 ==========
-
-class TagCreate(BaseModel):
-    name: str = Field(..., min_length=1, max_length=32, description="标签名称")
-    color: str = Field(default="#6b7280", description="颜色")
-
-    @field_validator('color')
-    @classmethod
-    def validate_color(cls, v: str) -> str:
-        return validate_hex_color(v)
-
-
-class TagUpdate(BaseModel):
-    name: Optional[str] = Field(None, min_length=1, max_length=32)
-    color: Optional[str] = None
-
-    @field_validator('color')
-    @classmethod
-    def validate_color(cls, v: Optional[str]) -> Optional[str]:
-        if v is None:
-            return v
-        return validate_hex_color(v)
-
-
-class TagItem(BaseModel):
-    id: int
-    name: str
-    color: str
-    created_at: Optional[datetime] = None
-
-    class Config:
-        from_attributes = True
+class MessageResp(BaseModel):
+    """通用消息响应"""
+    message: str
 
 
 # ========== 分组 ==========
 
 class GroupCreate(BaseModel):
+    """创建分组"""
     name: str = Field(..., min_length=1, max_length=32, description="分组名称")
-    sort_order: int = Field(default=0, description="排序")
 
 
 class GroupUpdate(BaseModel):
-    name: Optional[str] = Field(None, min_length=1, max_length=32)
-    sort_order: Optional[int] = None
+    """更新分组"""
+    id: int = Field(..., description="分组ID")
+    name: str = Field(..., min_length=1, max_length=32, description="分组名称")
 
 
-class GroupItem(BaseModel):
+class GroupSort(BaseModel):
+    """分组排序"""
+    items: List[int] = Field(..., description="分组ID列表，按顺序排列")
+
+
+class GroupInfo(BaseModel):
+    """分组信息"""
     id: int
     name: str
-    sort_order: int
-    stock_count: int = 0
-    created_at: Optional[datetime] = None
+    sortOrder: int
+    stockCount: int
+    isDefault: bool
 
     class Config:
         from_attributes = True
 
 
-# ========== 自选股 ==========
-
-class StockAdd(BaseModel):
-    code: str = Field(..., min_length=1, max_length=10, description="股票代码")
-    name: Optional[str] = Field(None, max_length=50, description="股票名称")
-
-    @field_validator('code')
-    @classmethod
-    def validate_code(cls, v: str) -> str:
-        return validate_stock_code(v)
+class GroupListResp(BaseModel):
+    """分组列表响应"""
+    groups: List[GroupInfo]
 
 
-class StockTagUpdate(BaseModel):
-    tag_ids: List[int] = Field(..., description="标签ID列表")
+# ========== 条目 ==========
+
+class ItemAdd(BaseModel):
+    """添加条目"""
+    tsCode: str = Field(..., min_length=1, max_length=12, description="股票代码")
+    groupIds: List[int] = Field(default=[0], description="分组ID列表，默认为默认分组")
 
 
-class StockGroupUpdate(BaseModel):
-    group_id: Optional[int] = Field(None, description="分组ID，null表示移出分组")
+class ItemRemove(BaseModel):
+    """移除条目"""
+    tsCode: str = Field(..., description="股票代码")
+    groupId: int = Field(default=0, description="分组ID，默认为默认分组")
 
 
-class StockListItem(BaseModel):
-    code: str
-    name: Optional[str] = None
-    tags: List[TagItem] = []
-    group: Optional[GroupItem] = None
-    last_analysis_at: Optional[datetime] = None
-    last_prediction: Optional[str] = None
-    last_advice: Optional[str] = None
-    created_at: Optional[datetime] = None
-
-    class Config:
-        from_attributes = True
+class ItemMove(BaseModel):
+    """移动条目"""
+    tsCode: str = Field(..., description="股票代码")
+    fromGroupId: int = Field(..., description="源分组ID")
+    toGroupId: int = Field(..., description="目标分组ID")
 
 
-class StockListResponse(BaseModel):
-    items: List[StockListItem]
-    total: int
-    page: int
-    limit: int
+class ItemSortEntry(BaseModel):
+    """条目排序项"""
+    tsCode: str = Field(..., description="股票代码")
+    action: Literal["top", "bottom"] = Field(..., description="排序动作：top-置顶，bottom-置底")
 
 
-# ========== 历史分析 ==========
+class ItemSort(BaseModel):
+    """条目排序"""
+    groupId: int = Field(..., description="分组ID")
+    items: List[ItemSortEntry] = Field(..., description="排序项列表")
 
-class AnalysisHistoryItem(BaseModel):
+
+class ItemListParam(BaseModel):
+    """条目列表查询参数"""
+    groupId: int = Field(default=0, description="分组ID，默认为默认分组")
+    size: int = Field(default=20, ge=1, le=100, description="每页数量，1-100")
+    offset: int = Field(default=0, ge=0, description="偏移量")
+
+
+class TagInfo(BaseModel):
+    """标签信息"""
     id: int
-    analysis_date: Optional[str] = None
-    analysis_time: Optional[str] = None
-    trend_prediction: Optional[str] = None
-    operation_advice: Optional[str] = None
-    sentiment_score: Optional[int] = None
-    analysis_summary: Optional[str] = None
-    backtest_outcome: Optional[str] = None
-    direction_correct: Optional[bool] = None
+    name: str
 
     class Config:
         from_attributes = True
 
 
-class AccuracyStats(BaseModel):
-    direction_accuracy: Optional[float] = None
-    win_count: int = 0
-    loss_count: int = 0
-    neutral_count: int = 0
+class ItemInfo(BaseModel):
+    """条目信息"""
+    tsCode: str
+    name: str
+    industry: Optional[str] = None
+    tags: List[TagInfo] = []
+    close: Optional[float] = None
+    changePct: Optional[float] = None
+    totalMv: Optional[float] = None
+    turnoverRate: Optional[float] = None
+
+    class Config:
+        from_attributes = True
 
 
-class StockHistoryResponse(BaseModel):
-    items: List[AnalysisHistoryItem]
+class ItemListResp(BaseModel):
+    """条目列表响应"""
+    items: List[ItemInfo]
     total: int
-    page: int
-    limit: int
-    accuracy_stats: Optional[AccuracyStats] = None
 
 
-# ========== 通用响应 ==========
+# ========== 搜索 ==========
 
-class MessageResponse(BaseModel):
-    message: str
+class ItemSearchParam(BaseModel):
+    """条目搜索参数"""
+    keyword: str = Field(..., min_length=1, max_length=20, description="搜索关键词")
+    limit: int = Field(default=10, ge=1, le=50, description="返回数量限制，1-50")
 
 
-class ErrorResponse(BaseModel):
-    error: str
-    detail: Optional[str] = None
+class ItemSearchInfo(BaseModel):
+    """条目搜索结果"""
+    tsCode: str
+    name: str
+    industry: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class ItemSearchResp(BaseModel):
+    """条目搜索响应"""
+    items: List[ItemSearchInfo]
+
+
+# ========== 标签 ==========
+
+class TagCreate(BaseModel):
+    """创建标签"""
+    name: str = Field(..., min_length=1, max_length=32, description="标签名称")
+
+
+class StockTagSet(BaseModel):
+    """设置股票标签"""
+    tsCode: str = Field(..., description="股票代码")
+    tagIds: List[int] = Field(..., description="标签ID列表")
