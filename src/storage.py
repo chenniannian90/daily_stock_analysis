@@ -571,108 +571,98 @@ class PortfolioDailySnapshot(Base):
     )
 
 
-class WatchlistStock(Base):
-    """自选股"""
+class WatchlistItem(Base):
+    """自选股条目（一股可多分组）"""
 
-    __tablename__ = 'watchlist_stocks'
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    code = Column(String(10), nullable=False, unique=True, index=True)
-    name = Column(String(50))
-    last_analysis_at = Column(DateTime, index=True)
-    created_at = Column(DateTime, default=datetime.now, index=True)
-
-    def __repr__(self):
-        return f"<WatchlistStock(code={self.code}, name={self.name})>"
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            'id': self.id,
-            'code': self.code,
-            'name': self.name,
-            'last_analysis_at': self.last_analysis_at.isoformat() if self.last_analysis_at else None,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-        }
-
-
-class WatchlistTag(Base):
-    """自选股标签"""
-
-    __tablename__ = 'watchlist_tags'
+    __tablename__ = 'watchlist_items'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    name = Column(String(32), nullable=False, unique=True, index=True)
-    color = Column(String(16), default='#6b7280')
-    created_at = Column(DateTime, default=datetime.now)
-
-    def __repr__(self):
-        return f"<WatchlistTag(name={self.name}, color={self.color})>"
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            'id': self.id,
-            'name': self.name,
-            'color': self.color,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-        }
-
-
-class WatchlistStockTag(Base):
-    """股票-标签关联"""
-
-    __tablename__ = 'watchlist_stock_tags'
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    stock_id = Column(Integer, ForeignKey('watchlist_stocks.id', ondelete='CASCADE'), nullable=False, index=True)
-    tag_id = Column(Integer, ForeignKey('watchlist_tags.id', ondelete='CASCADE'), nullable=False, index=True)
+    user_id = Column(String(64), nullable=False, default='default', index=True)
+    watch_type = Column(String(16), nullable=False, default='stock')
+    group_id = Column(Integer, nullable=False, default=0, index=True)
+    ts_code = Column(String(10), nullable=False, index=True)
+    sort_num = Column(Integer, nullable=False, default=0)
     created_at = Column(DateTime, default=datetime.now)
 
     __table_args__ = (
-        UniqueConstraint('stock_id', 'tag_id', name='uix_watchlist_stock_tag'),
+        UniqueConstraint('user_id', 'group_id', 'ts_code', name='uix_user_group_tscode'),
+        Index('ix_watchlist_user_type', 'user_id', 'watch_type'),
     )
 
     def __repr__(self):
-        return f"<WatchlistStockTag(stock_id={self.stock_id}, tag_id={self.tag_id})>"
+        return f"<WatchlistItem(user={self.user_id}, code={self.ts_code}, group={self.group_id})>"
 
 
-class WatchlistGroup(Base):
+class WatchlistGroupNew(Base):
     """自选股分组"""
 
-    __tablename__ = 'watchlist_groups'
+    __tablename__ = 'watchlist_groups_new'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    name = Column(String(32), nullable=False, unique=True, index=True)
-    sort_order = Column(Integer, default=0)
-    created_at = Column(DateTime, default=datetime.now)
-
-    def __repr__(self):
-        return f"<WatchlistGroup(name={self.name}, sort_order={self.sort_order})>"
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            'id': self.id,
-            'name': self.name,
-            'sort_order': self.sort_order,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-        }
-
-
-class WatchlistStockGroup(Base):
-    """股票-分组关联"""
-
-    __tablename__ = 'watchlist_stock_groups'
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    stock_id = Column(Integer, ForeignKey('watchlist_stocks.id', ondelete='CASCADE'), nullable=False, index=True)
-    group_id = Column(Integer, ForeignKey('watchlist_groups.id', ondelete='CASCADE'), nullable=False, index=True)
+    user_id = Column(String(64), nullable=False, default='default', index=True)
+    name = Column(String(32), nullable=False)
     created_at = Column(DateTime, default=datetime.now)
 
     __table_args__ = (
-        UniqueConstraint('stock_id', name='uix_watchlist_stock_group_stock'),
+        UniqueConstraint('user_id', 'name', name='uix_user_group_name'),
     )
 
     def __repr__(self):
-        return f"<WatchlistStockGroup(stock_id={self.stock_id}, group_id={self.group_id})>"
+        return f"<WatchlistGroupNew(user={self.user_id}, name={self.name})>"
+
+
+class WatchlistSort(Base):
+    """排序存储"""
+
+    __tablename__ = 'watchlist_sorts'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(String(64), nullable=False, index=True)
+    sort_type = Column(String(32), nullable=False)
+    sort_content = Column(Text)  # JSON 数组
+
+    __table_args__ = (
+        UniqueConstraint('user_id', 'sort_type', name='uix_user_sort_type'),
+    )
+
+    def __repr__(self):
+        return f"<WatchlistSort(user={self.user_id}, type={self.sort_type})>"
+
+
+class UserTag(Base):
+    """用户标签"""
+
+    __tablename__ = 'user_tags'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(String(64), nullable=False, default='default', index=True)
+    name = Column(String(32), nullable=False)
+    created_at = Column(DateTime, default=datetime.now)
+
+    __table_args__ = (
+        UniqueConstraint('user_id', 'name', name='uix_user_tag_name'),
+    )
+
+    def __repr__(self):
+        return f"<UserTag(user={self.user_id}, name={self.name})>"
+
+
+class StockUserTag(Base):
+    """股票-标签关联"""
+
+    __tablename__ = 'stock_user_tags'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(String(64), nullable=False, index=True)
+    ts_code = Column(String(10), nullable=False, index=True)
+    tag_id = Column(Integer, ForeignKey('user_tags.id'), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint('user_id', 'ts_code', 'tag_id', name='uix_user_code_tag'),
+    )
+
+    def __repr__(self):
+        return f"<StockUserTag(user={self.user_id}, code={self.ts_code}, tag={self.tag_id})>"
 
 
 class PortfolioFxRate(Base):
