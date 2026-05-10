@@ -592,6 +592,18 @@ class WatchlistItem(Base):
     def __repr__(self):
         return f"<WatchlistItem(user={self.user_id}, code={self.ts_code}, group={self.group_id})>"
 
+    def to_dict(self) -> Dict[str, Any]:
+        """转换为字典"""
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'watch_type': self.watch_type,
+            'group_id': self.group_id,
+            'ts_code': self.ts_code,
+            'sort_num': self.sort_num,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
 
 class WatchlistGroupNew(Base):
     """自选股分组"""
@@ -609,6 +621,15 @@ class WatchlistGroupNew(Base):
 
     def __repr__(self):
         return f"<WatchlistGroupNew(user={self.user_id}, name={self.name})>"
+
+    def to_dict(self) -> Dict[str, Any]:
+        """转换为字典"""
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'name': self.name,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
 
 
 class WatchlistSort(Base):
@@ -628,6 +649,15 @@ class WatchlistSort(Base):
     def __repr__(self):
         return f"<WatchlistSort(user={self.user_id}, type={self.sort_type})>"
 
+    def to_dict(self) -> Dict[str, Any]:
+        """转换为字典"""
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'sort_type': self.sort_type,
+            'sort_content': self.sort_content,
+        }
+
 
 class UserTag(Base):
     """用户标签"""
@@ -646,6 +676,15 @@ class UserTag(Base):
     def __repr__(self):
         return f"<UserTag(user={self.user_id}, name={self.name})>"
 
+    def to_dict(self) -> Dict[str, Any]:
+        """转换为字典"""
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'name': self.name,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
 
 class StockUserTag(Base):
     """股票-标签关联"""
@@ -655,7 +694,7 @@ class StockUserTag(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(String(64), nullable=False, index=True)
     ts_code = Column(String(10), nullable=False, index=True)
-    tag_id = Column(Integer, ForeignKey('user_tags.id'), nullable=False)
+    tag_id = Column(Integer, ForeignKey('user_tags.id', ondelete='CASCADE'), nullable=False)
 
     __table_args__ = (
         UniqueConstraint('user_id', 'ts_code', 'tag_id', name='uix_user_code_tag'),
@@ -663,6 +702,15 @@ class StockUserTag(Base):
 
     def __repr__(self):
         return f"<StockUserTag(user={self.user_id}, code={self.ts_code}, tag={self.tag_id})>"
+
+    def to_dict(self) -> Dict[str, Any]:
+        """转换为字典"""
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'ts_code': self.ts_code,
+            'tag_id': self.tag_id,
+        }
 
 
 class PortfolioFxRate(Base):
