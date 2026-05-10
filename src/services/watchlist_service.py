@@ -200,6 +200,87 @@ class WatchlistService:
 
         return results
 
+    # ========== 分析历史 ==========
+
+    def get_stock_analysis_history(
+        self, code: str, page: int = 1, limit: int = 20
+    ) -> Dict[str, Any]:
+        """获取单只股票的历史分析记录"""
+        from sqlalchemy import func, select as sa_select
+
+        from src.storage import AnalysisHistory, BacktestResult
+
+        offset = (page - 1) * limit
+
+        total = self.repo._session.execute(
+            sa_select(func.count(AnalysisHistory.id)).where(AnalysisHistory.code == code)
+        ).scalar() or 0
+
+        records = self.repo._session.execute(
+            sa_select(AnalysisHistory)
+            .where(AnalysisHistory.code == code)
+            .order_by(AnalysisHistory.created_at.desc())
+            .limit(limit)
+            .offset(offset)
+        ).scalars().all()
+
+        items = []
+        for r in records:
+            backtest = self.repo._session.execute(
+                sa_select(BacktestResult)
+                .where(BacktestResult.analysis_history_id == r.id)
+                .limit(1)
+            ).scalar_one_or_none()
+
+            analysis_time = r.created_at.strftime("%H:%M") if r.created_at else None
+            analysis_date = r.created_at.strftime("%Y-%m-%d") if r.created_at else None
+
+            items.append({
+                "id": r.id,
+                "analysisDate": analysis_date,
+                "analysisTime": analysis_time,
+                "trendPrediction": r.trend_prediction,
+                "operationAdvice": r.operation_advice,
+                "sentimentScore": r.sentiment_score,
+                "analysisSummary": (
+                    r.analysis_summary[:100] + "..."
+                    if r.analysis_summary and len(r.analysis_summary) > 100
+                    else r.analysis_summary
+                ),
+                "backtestOutcome": backtest.outcome if backtest else None,
+                "directionCorrect": backtest.direction_correct if backtest else None,
+            })
+
+        # 统计准确率
+        completed_backtests = self.repo._session.execute(
+            sa_select(BacktestResult)
+            .join(AnalysisHistory, BacktestResult.analysis_history_id == AnalysisHistory.id)
+            .where(AnalysisHistory.code == code)
+            .where(BacktestResult.eval_status == "completed")
+        ).scalars().all()
+
+        accuracy_stats = None
+        if completed_backtests:
+            correct = sum(1 for b in completed_backtests if b.direction_correct is True)
+            win = sum(1 for b in completed_backtests if b.outcome == "win")
+            loss = sum(1 for b in completed_backtests if b.outcome == "loss")
+            neutral = sum(1 for b in completed_backtests if b.outcome == "neutral")
+
+            accuracy_stats = {
+                "directionAccuracy": round(correct / len(completed_backtests), 4),
+                "winCount": win,
+                "lossCount": loss,
+                "neutralCount": neutral,
+            }
+
+        return {
+            "items": items,
+            "total": total,
+            "page": page,
+            "limit": limit,
+            "accuracyStats": accuracy_stats,
+        }
+
     # ========== 私有方法 ==========
 
     def _fetch_stock_names(self, ts_codes: List[str]) -> Dict[str, str]:

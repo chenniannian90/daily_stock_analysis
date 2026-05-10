@@ -9,6 +9,8 @@ from sqlalchemy.orm import Session
 
 from api.deps import get_db
 from api.v1.schemas.watchlist import (
+    AccuracyStats,
+    AnalysisHistoryItem,
     GroupCreate,
     GroupUpdate,
     GroupSort,
@@ -21,7 +23,11 @@ from api.v1.schemas.watchlist import (
     ItemSearchResp,
     ItemSearchInfo,
     MessageResp,
+    StockHistoryResp,
     TagInfo,
+    TagCreate,
+    TagUpdate,
+    StockTagSet,
     ItemInfo,
 )
 from src.services.watchlist_service import WatchlistService
@@ -143,3 +149,24 @@ def search_stocks(
     results = service.search_stocks(keyword, limit)
     items = [ItemSearchInfo(**r) for r in results]
     return ItemSearchResp(items=items)
+
+
+# ========== 分析历史 ==========
+
+@router.get("/stocks/{code}/history", response_model=StockHistoryResp, summary="获取分析历史")
+def get_stock_analysis_history(
+    code: str,
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    """获取单只股票的历史分析记录和回测统计"""
+    service = WatchlistService(db)
+    result = service.get_stock_analysis_history(code, page, limit)
+    return StockHistoryResp(
+        items=[AnalysisHistoryItem(**item) for item in result['items']],
+        total=result['total'],
+        page=result['page'],
+        limit=result['limit'],
+        accuracyStats=AccuracyStats(**result['accuracyStats']) if result['accuracyStats'] else None,
+    )

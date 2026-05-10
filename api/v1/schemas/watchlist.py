@@ -146,9 +146,47 @@ class ItemSearchResp(BaseModel):
 class TagCreate(BaseModel):
     """创建标签"""
     name: str = Field(..., min_length=1, max_length=32, description="标签名称")
+    color: Optional[str] = Field(default="#00d4ff", description="标签颜色")
+
+
+class TagUpdate(BaseModel):
+    """更新标签"""
+    name: Optional[str] = Field(None, min_length=1, max_length=32, description="标签名称")
+    color: Optional[str] = Field(None, description="标签颜色")
 
 
 class StockTagSet(BaseModel):
     """设置股票标签"""
-    tsCode: str = Field(..., description="股票代码")
-    tagIds: List[int] = Field(..., description="标签ID列表")
+    tag_ids: List[int] = Field(..., description="标签ID列表")
+
+
+# ========== 分析历史 ==========
+
+class AnalysisHistoryItem(BaseModel):
+    """分析历史条目"""
+    id: int
+    analysisDate: Optional[str] = None
+    analysisTime: Optional[str] = None
+    trendPrediction: Optional[str] = None
+    operationAdvice: Optional[str] = None
+    sentimentScore: Optional[int] = None
+    analysisSummary: Optional[str] = None
+    backtestOutcome: Optional[str] = None
+    directionCorrect: Optional[bool] = None
+
+
+class AccuracyStats(BaseModel):
+    """预测准确率统计"""
+    directionAccuracy: Optional[float] = None
+    winCount: int = 0
+    lossCount: int = 0
+    neutralCount: int = 0
+
+
+class StockHistoryResp(BaseModel):
+    """股票分析历史响应"""
+    items: List[AnalysisHistoryItem]
+    total: int
+    page: int
+    limit: int
+    accuracyStats: Optional[AccuracyStats] = None
