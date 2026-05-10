@@ -65,6 +65,7 @@ class TestWatchlistItemModel:
 
         with pytest.raises(IntegrityError):
             db_session.commit()
+        db_session.rollback()
 
     def test_watchlist_item_to_dict(self, db_session):
         """测试 to_dict 方法"""
@@ -108,6 +109,7 @@ class TestWatchlistGroupNewModel:
 
         with pytest.raises(IntegrityError):
             db_session.commit()
+        db_session.rollback()
 
     def test_different_user_same_group_name(self, db_session):
         """测试不同用户可以有同名分组"""
@@ -160,6 +162,7 @@ class TestWatchlistSortModel:
 
         with pytest.raises(IntegrityError):
             db_session.commit()
+        db_session.rollback()
 
     def test_different_sort_types(self, db_session):
         """测试同一用户可以有不同类型的排序记录"""
@@ -208,6 +211,7 @@ class TestUserTagModels:
 
         with pytest.raises(IntegrityError):
             db_session.commit()
+        db_session.rollback()
 
     def test_different_user_same_tag_name(self, db_session):
         """测试不同用户可以有同名标签"""
@@ -290,6 +294,7 @@ class TestStockUserTagModel:
 
         with pytest.raises(IntegrityError):
             db_session.commit()
+        db_session.rollback()
 
     def test_stock_user_tag_to_dict(self, db_session):
         """测试 to_dict 方法"""
