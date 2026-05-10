@@ -16,7 +16,7 @@ import {
   Input,
   Select,
 } from '../components/common';
-import type { GroupInfo, ItemInfo, TagItem, StockAdd } from '../types/watchlist';
+import type { GroupInfo, ItemInfo, TagItem } from '../types/watchlist';
 
 const DEFAULT_PAGE_SIZE = 20;
 
@@ -110,30 +110,17 @@ const WatchlistPage: React.FC = () => {
     setIsLoading(true);
     setError(null);
     try {
-      if (selectedGroupId === 'all') {
-        // For "all" view, we need to fetch items from all groups
-        // For now, we'll fetch from the first group or show empty
-        if (groups.length === 0) {
-          setItems([]);
-          setTotalItems(0);
-        } else {
-          // Fetch from first non-default group or default group
-          const targetGroup = groups.find(g => !g.isDefault) || groups[0];
-          const data = await watchlistApi.listItems(targetGroup.id, DEFAULT_PAGE_SIZE, (currentPage - 1) * DEFAULT_PAGE_SIZE);
-          setItems(data.items || []);
-          setTotalItems(data.total || 0);
-        }
-      } else {
-        const data = await watchlistApi.listItems(selectedGroupId, DEFAULT_PAGE_SIZE, (currentPage - 1) * DEFAULT_PAGE_SIZE);
-        setItems(data.items || []);
-        setTotalItems(data.total || 0);
-      }
+      // groupId=0 means "all" (聚合所有条目并去重)
+      const groupId = selectedGroupId === 'all' ? 0 : selectedGroupId;
+      const data = await watchlistApi.listItems(groupId, DEFAULT_PAGE_SIZE, (currentPage - 1) * DEFAULT_PAGE_SIZE);
+      setItems(data.items || []);
+      setTotalItems(data.total || 0);
     } catch (err) {
       setError(getParsedApiError(err));
     } finally {
       setIsLoading(false);
     }
-  }, [currentPage, selectedGroupId, groups]);
+  }, [currentPage, selectedGroupId]);
 
   useEffect(() => {
     void loadGroups();
@@ -161,11 +148,9 @@ const WatchlistPage: React.FC = () => {
     setAddingStock(true);
     setAddStockError(null);
     try {
-      const stockData: StockAdd = {
-        code: newStockCode.trim(),
-        name: newStockName.trim() || undefined,
-      };
-      await watchlistApi.addStock(stockData);
+      // Use new API: addItem(tsCode, groupIds)
+      const groupId = selectedGroupId === 'all' ? 0 : selectedGroupId;
+      await watchlistApi.addItem(newStockCode.trim(), [groupId]);
       setNewStockCode('');
       setNewStockName('');
       setAddStockDrawerOpen(false);
@@ -183,7 +168,9 @@ const WatchlistPage: React.FC = () => {
     if (!pendingDeleteItem) return;
     setDeletingItem(true);
     try {
-      const groupId = selectedGroupId === 'all' ? (groups[0]?.id || 0) : selectedGroupId;
+      // In "all" view, remove from all groups (groupId=0 removes from all)
+      // In specific group view, remove from that group only
+      const groupId = selectedGroupId === 'all' ? 0 : selectedGroupId;
       await watchlistApi.removeItem(pendingDeleteItem.tsCode, groupId);
       setPendingDeleteItem(null);
       if (items.length === 1 && currentPage > 1) {
