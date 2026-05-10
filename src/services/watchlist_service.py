@@ -203,19 +203,14 @@ class WatchlistService:
 
     def _fetch_stock_names(self, ts_codes: List[str]) -> Dict[str, str]:
         """批量获取股票名称"""
-        result = {}
+        if not ts_codes:
+            return {}
         try:
             fetcher = DataFetcherManager()
-            for code in ts_codes:
-                try:
-                    name = fetcher.get_stock_name(code, allow_realtime=False)
-                    if name:
-                        result[code] = name
-                except Exception:
-                    pass
+            return fetcher.batch_get_stock_names(ts_codes)
         except Exception as e:
             logger.warning(f"获取股票名称失败: {e}")
-        return result
+            return {}
 
     def _fetch_quotes(self, ts_codes: List[str]) -> Dict[str, Dict[str, Any]]:
         """批量获取行情数据"""
@@ -228,7 +223,7 @@ class WatchlistService:
                     if quote:
                         result[code] = {
                             'close': quote.close,
-                            'changePct': (quote.close - quote.pre_close) / quote.pre_close * 100 if quote.pre_close else 0,
+                            'changePct': (quote.close - quote.pre_close) / quote.pre_close * 100 if quote.pre_close and quote.pre_close != 0 else 0,
                             'totalMv': getattr(quote, 'total_mv', None),
                             'turnoverRate': getattr(quote, 'turnover_rate', None),
                         }
