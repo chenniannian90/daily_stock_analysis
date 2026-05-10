@@ -335,33 +335,71 @@ class WatchlistService:
     # ========== 私有方法 ==========
 
     def _fetch_stock_names(self, ts_codes: List[str]) -> Dict[str, str]:
-        """批量获取股票名称"""
+        """批量获取股票名称（优先本地索引）"""
         if not ts_codes:
             return {}
+        result = {}
+        missing = set(ts_codes)
+
+        # 1. 优先从本地股票索引查（毫秒级，无网络开销）
         try:
-            fetcher = DataFetcherManager()
-            return fetcher.batch_get_stock_names(ts_codes)
+            stocks_index = _load_stocks_index()
+            for entry in stocks_index:
+                if not missing:
+                    break
+                if len(entry) < 3:
+                    continue
+                ts_code = entry[0]
+                name = entry[2]
+                if ts_code in missing and name:
+                    result[ts_code] = name
+                    missing.discard(ts_code)
         except Exception as e:
-            logger.warning(f"获取股票名称失败: {e}")
-            return {}
+            logger.debug(f"本地索引查名称失败: {e}")
+
+        # 2. 本地未命中的再走远程
+        if missing:
+            try:
+                fetcher = DataFetcherManager()
+                remote_names = fetcher.batch_get_stock_names(list(missing))
+                result.update(remote_names)
+            except Exception as e:
+                logger.warning(f"远程获取股票名称失败: {e}")
+
+        return result
 
     def _fetch_quotes(self, ts_codes: List[str]) -> Dict[str, Dict[str, Any]]:
-        """批量获取行情数据"""
+        """批量获取行情数据（并行请求）"""
         result = {}
-        try:
-            fetcher = DataFetcherManager()
-            for code in ts_codes:
+        if not ts_codes:
+            return result
+
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        def _fetch_one(code: str) -> tuple:
+            try:
+                fetcher = DataFetcherManager()
+                quote = fetcher.get_realtime_quote(code, log_final_failure=False)
+                if quote:
+                    return (code, {
+                        'close': quote.price,
+                        'changePct': quote.change_pct,
+                        'totalMv': quote.total_mv,
+                        'turnoverRate': quote.turnover_rate,
+                    })
+            except Exception:
+                pass
+            return (code, None)
+
+        max_workers = min(len(ts_codes), 8)
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(_fetch_one, code): code for code in ts_codes}
+            for future in as_completed(futures):
                 try:
-                    quote = fetcher.get_realtime_quote(code)
-                    if quote:
-                        result[code] = {
-                            'close': quote.price,
-                            'changePct': quote.change_pct,
-                            'totalMv': quote.total_mv,
-                            'turnoverRate': quote.turnover_rate,
-                        }
+                    code, data = future.result()
+                    if data is not None:
+                        result[code] = data
                 except Exception as e:
-                    logger.debug(f"获取 {code} 行情失败: {e}")
-        except Exception as e:
-            logger.warning(f"获取行情数据失败: {e}")
+                    logger.debug(f"并行获取行情异常: {e}")
+
         return result
