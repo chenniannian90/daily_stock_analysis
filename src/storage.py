@@ -667,6 +667,7 @@ class UserTag(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(String(64), nullable=False, default='default', index=True)
     name = Column(String(32), nullable=False)
+    color = Column(String(7), nullable=False, default='#00d4ff')
     created_at = Column(DateTime, default=datetime.now)
 
     __table_args__ = (
@@ -682,6 +683,7 @@ class UserTag(Base):
             'id': self.id,
             'user_id': self.user_id,
             'name': self.name,
+            'color': self.color,
             'created_at': self.created_at.isoformat() if self.created_at else None,
         }
 

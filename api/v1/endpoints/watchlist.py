@@ -2,7 +2,7 @@
 """自选股 API 端点 - 升级版"""
 
 import logging
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -25,6 +25,7 @@ from api.v1.schemas.watchlist import (
     MessageResp,
     StockHistoryResp,
     TagInfo,
+    TagItem,
     TagCreate,
     TagUpdate,
     StockTagSet,
@@ -149,6 +150,57 @@ def search_stocks(
     results = service.search_stocks(keyword, limit)
     items = [ItemSearchInfo(**r) for r in results]
     return ItemSearchResp(items=items)
+
+
+# ========== 标签接口 ==========
+
+@router.get("/tags", response_model=List[TagItem], summary="获取所有标签")
+def list_tags(db: Session = Depends(get_db)):
+    """获取用户的所有标签"""
+    service = WatchlistService(db)
+    result = service.list_tags()
+    return [TagItem(**t) for t in result]
+
+
+@router.post("/tags", response_model=TagItem, summary="创建标签")
+def create_tag(data: TagCreate, db: Session = Depends(get_db)):
+    """创建标签"""
+    service = WatchlistService(db)
+    try:
+        result = service.create_tag(data.name, data.color or "#00d4ff")
+        return TagItem(**result)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.put("/tags/{tag_id}", response_model=TagItem, summary="更新标签")
+def update_tag(tag_id: int, data: TagUpdate, db: Session = Depends(get_db)):
+    """更新标签"""
+    service = WatchlistService(db)
+    try:
+        result = service.update_tag(tag_id, data.name, data.color)
+        if not result:
+            raise HTTPException(status_code=404, detail="标签不存在")
+        return TagItem(**result)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.delete("/tags/{tag_id}", response_model=MessageResp, summary="删除标签")
+def delete_tag(tag_id: int, db: Session = Depends(get_db)):
+    """删除标签"""
+    service = WatchlistService(db)
+    if not service.delete_tag(tag_id):
+        raise HTTPException(status_code=404, detail="标签不存在")
+    return MessageResp(message="success")
+
+
+@router.post("/stocks/{code}/tags", response_model=MessageResp, summary="设置股票标签")
+def set_stock_tags(code: str, data: StockTagSet, db: Session = Depends(get_db)):
+    """设置股票的标签"""
+    service = WatchlistService(db)
+    service.set_stock_tags(code, data.tag_ids)
+    return MessageResp(message="success")
 
 
 # ========== 分析历史 ==========

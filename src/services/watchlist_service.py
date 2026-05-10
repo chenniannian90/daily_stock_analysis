@@ -200,6 +200,41 @@ class WatchlistService:
 
         return results
 
+    # ========== 标签操作 ==========
+
+    def list_tags(self) -> List[Dict[str, Any]]:
+        """获取所有标签"""
+        tags = self.repo.list_tags()
+        return [{"id": t.id, "name": t.name, "color": t.color, "createdAt": t.created_at.isoformat() if t.created_at else None} for t in tags]
+
+    def create_tag(self, name: str, color: str = "#00d4ff") -> Dict[str, Any]:
+        """创建标签"""
+        tag = self.repo.create_tag(name, color)
+        return {"id": tag.id, "name": tag.name, "color": tag.color, "createdAt": tag.created_at.isoformat() if tag.created_at else None}
+
+    def update_tag(self, tag_id: int, name: Optional[str] = None, color: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """更新标签"""
+        tag = self.repo.update_tag(tag_id, name, color)
+        if tag:
+            return {"id": tag.id, "name": tag.name, "color": tag.color, "createdAt": tag.created_at.isoformat() if tag.created_at else None}
+        return None
+
+    def delete_tag(self, tag_id: int) -> bool:
+        """删除标签"""
+        return self.repo.delete_tag(tag_id)
+
+    def set_stock_tags(self, ts_code: str, tag_ids: List[int]) -> bool:
+        """设置股票的标签（替换所有标签）"""
+        existing = self.repo.get_stock_tags(ts_code)
+        existing_ids = {t.id for t in existing}
+        to_remove = existing_ids - set(tag_ids)
+        to_add = set(tag_ids) - existing_ids
+        for tid in to_remove:
+            self.repo.remove_tag_from_stock(ts_code, tid)
+        for tid in to_add:
+            self.repo.add_tag_to_stock(ts_code, tid)
+        return True
+
     # ========== 分析历史 ==========
 
     def get_stock_analysis_history(

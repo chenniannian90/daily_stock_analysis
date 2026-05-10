@@ -257,13 +257,34 @@ class WatchlistRepository:
 
     # ========== 标签操作 ==========
 
-    def create_tag(self, name: str) -> UserTag:
+    def create_tag(self, name: str, color: str = '#00d4ff') -> UserTag:
         """创建标签"""
         try:
-            tag = UserTag(user_id=self._user_id, name=name)
+            tag = UserTag(user_id=self._user_id, name=name, color=color)
             self._session.add(tag)
             self._session.commit()
             logger.info(f"创建标签: {name}")
+            return tag
+        except IntegrityError:
+            self._session.rollback()
+            raise ValueError(f"标签 '{name}' 已存在")
+
+    def update_tag(self, tag_id: int, name: Optional[str] = None, color: Optional[str] = None) -> Optional[UserTag]:
+        """更新标签"""
+        tag = self._session.execute(
+            select(UserTag).where(
+                UserTag.id == tag_id,
+                UserTag.user_id == self._user_id,
+            )
+        ).scalar_one_or_none()
+        if not tag:
+            return None
+        try:
+            if name is not None:
+                tag.name = name
+            if color is not None:
+                tag.color = color
+            self._session.commit()
             return tag
         except IntegrityError:
             self._session.rollback()

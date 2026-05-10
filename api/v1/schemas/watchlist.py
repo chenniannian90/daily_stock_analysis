@@ -97,6 +97,17 @@ class TagInfo(BaseModel):
         from_attributes = True
 
 
+class TagItem(BaseModel):
+    """标签详情（含颜色和创建时间）"""
+    id: int
+    name: str
+    color: str = "#00d4ff"
+    createdAt: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
 class ItemInfo(BaseModel):
     """条目信息"""
     tsCode: str
