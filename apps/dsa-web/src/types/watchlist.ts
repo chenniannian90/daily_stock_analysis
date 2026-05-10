@@ -1,9 +1,86 @@
 /**
  * Watchlist-related type definitions.
- * Aligned with the API schema.
+ * Aligned with the new API schema.
  */
 
 // ============ Tag Types ============
+
+export interface TagInfo {
+  id: number;
+  name: string;
+}
+
+// ============ Group Types ============
+
+export interface GroupInfo {
+  id: number;
+  name: string;
+  sortOrder: number;
+  stockCount: number;
+  isDefault?: boolean;
+}
+
+// ============ Item Types ============
+
+export interface ItemInfo {
+  tsCode: string;
+  name: string;
+  industry?: string;
+  tags: TagInfo[];
+  close?: number;
+  changePct?: number;
+  totalMv?: number;
+  turnoverRate?: number;
+}
+
+// ============ Response Types ============
+
+export interface GroupListResp {
+  groups: GroupInfo[];
+}
+
+export interface ItemListResp {
+  items: ItemInfo[];
+  total: number;
+}
+
+export interface ItemSearchResp {
+  items: ItemInfo[];
+}
+
+// ============ Request Types ============
+
+export interface GroupCreateReq {
+  name: string;
+}
+
+export interface GroupUpdateReq {
+  id: number;
+  name: string;
+}
+
+export interface GroupSortReq {
+  items: number[];
+}
+
+export interface ItemAddReq {
+  tsCode: string;
+  groupIds: number[];
+}
+
+export interface ItemMoveReq {
+  tsCode: string;
+  fromGroupId: number;
+  toGroupId: number;
+}
+
+export interface ItemSortReq {
+  groupId: number;
+  items: { tsCode: string; action: string }[];
+}
+
+// ============ Legacy Types (for backward compatibility) ============
+// These are kept to minimize breaking changes in other parts of the app
 
 export interface TagItem {
   id: number;
@@ -22,8 +99,6 @@ export interface TagUpdate {
   color?: string;
 }
 
-// ============ Group Types ============
-
 export interface GroupItem {
   id: number;
   name: string;
@@ -41,8 +116,6 @@ export interface GroupUpdate {
   name?: string;
   sortOrder?: number;
 }
-
-// ============ Stock Types ============
 
 export interface StockAdd {
   code: string;
@@ -66,8 +139,6 @@ export interface StockListResponse {
   page: number;
   limit: number;
 }
-
-// ============ History Types ============
 
 export interface AnalysisHistoryItem {
   id: number;
@@ -95,8 +166,6 @@ export interface StockHistoryResponse {
   limit: number;
   accuracyStats?: AccuracyStats;
 }
-
-// ============ Common Types ============
 
 export interface MessageResponse {
   message: string;

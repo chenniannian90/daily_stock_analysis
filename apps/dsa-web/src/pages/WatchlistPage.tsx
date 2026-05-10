@@ -1,7 +1,7 @@
 import type React from 'react';
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Tag, Trash2, X, ChevronRight } from 'lucide-react';
+import { Plus, Tag, Trash2, X, ChevronRight, TrendingUp, TrendingDown } from 'lucide-react';
 import { watchlistApi } from '../api/watchlist';
 import type { ParsedApiError } from '../api/error';
 import { getParsedApiError } from '../api/error';
@@ -16,9 +16,24 @@ import {
   Input,
   Select,
 } from '../components/common';
-import type { TagItem, GroupItem, StockListItem, StockAdd } from '../types/watchlist';
+import type { GroupInfo, ItemInfo, TagItem, StockAdd } from '../types/watchlist';
 
 const DEFAULT_PAGE_SIZE = 20;
+
+// Format number with appropriate precision
+const formatNumber = (num: number | undefined, decimals = 2): string => {
+  if (num === undefined || num === null) return '--';
+  return num.toFixed(decimals);
+};
+
+// Format market value (亿)
+const formatMarketValue = (mv: number | undefined): string => {
+  if (mv === undefined || mv === null) return '--';
+  if (mv >= 10000) {
+    return `${(mv / 10000).toFixed(2)}万亿`;
+  }
+  return `${mv.toFixed(2)}亿`;
+};
 
 const WatchlistPage: React.FC = () => {
   const navigate = useNavigate();
@@ -29,10 +44,10 @@ const WatchlistPage: React.FC = () => {
   }, []);
 
   // State
-  const [groups, setGroups] = useState<GroupItem[]>([]);
+  const [groups, setGroups] = useState<GroupInfo[]>([]);
   const [tags, setTags] = useState<TagItem[]>([]);
-  const [stocks, setStocks] = useState<StockListItem[]>([]);
-  const [totalStocks, setTotalStocks] = useState(0);
+  const [items, setItems] = useState<ItemInfo[]>([]);
+  const [totalItems, setTotalItems] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedGroupId, setSelectedGroupId] = useState<number | 'all'>('all');
   const [selectedTagId, setSelectedTagId] = useState<number | 'all'>('all');
@@ -59,8 +74,8 @@ const WatchlistPage: React.FC = () => {
   const [deletingTagId, setDeletingTagId] = useState<number | null>(null);
 
   // Delete confirmation
-  const [pendingDeleteStock, setPendingDeleteStock] = useState<StockListItem | null>(null);
-  const [deletingStock, setDeletingStock] = useState(false);
+  const [pendingDeleteItem, setPendingDeleteItem] = useState<ItemInfo | null>(null);
+  const [deletingItem, setDeletingItem] = useState(false);
 
   // Create group modal
   const [showCreateGroup, setShowCreateGroup] = useState(false);
@@ -68,12 +83,12 @@ const WatchlistPage: React.FC = () => {
   const [creatingGroup, setCreatingGroup] = useState(false);
   const [groupError, setGroupError] = useState<string | null>(null);
 
-  const totalPages = Math.max(1, Math.ceil(totalStocks / DEFAULT_PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(totalItems / DEFAULT_PAGE_SIZE));
 
   // Load groups
   const loadGroups = useCallback(async () => {
     try {
-      const data = await watchlistApi.getGroups();
+      const data = await watchlistApi.listGroups();
       setGroups(data || []);
     } catch (err) {
       console.error('Failed to load groups:', err);
@@ -90,30 +105,35 @@ const WatchlistPage: React.FC = () => {
     }
   }, []);
 
-  // Load stocks
-  const loadStocks = useCallback(async () => {
+  // Load items
+  const loadItems = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
-      const params: { groupId?: number; tagId?: number; page?: number; limit?: number } = {
-        page: currentPage,
-        limit: DEFAULT_PAGE_SIZE,
-      };
-      if (selectedGroupId !== 'all') {
-        params.groupId = selectedGroupId;
+      if (selectedGroupId === 'all') {
+        // For "all" view, we need to fetch items from all groups
+        // For now, we'll fetch from the first group or show empty
+        if (groups.length === 0) {
+          setItems([]);
+          setTotalItems(0);
+        } else {
+          // Fetch from first non-default group or default group
+          const targetGroup = groups.find(g => !g.isDefault) || groups[0];
+          const data = await watchlistApi.listItems(targetGroup.id, DEFAULT_PAGE_SIZE, (currentPage - 1) * DEFAULT_PAGE_SIZE);
+          setItems(data.items || []);
+          setTotalItems(data.total || 0);
+        }
+      } else {
+        const data = await watchlistApi.listItems(selectedGroupId, DEFAULT_PAGE_SIZE, (currentPage - 1) * DEFAULT_PAGE_SIZE);
+        setItems(data.items || []);
+        setTotalItems(data.total || 0);
       }
-      if (selectedTagId !== 'all') {
-        params.tagId = selectedTagId;
-      }
-      const data = await watchlistApi.getStocks(params);
-      setStocks(data.items || []);
-      setTotalStocks(data.total || 0);
     } catch (err) {
       setError(getParsedApiError(err));
     } finally {
       setIsLoading(false);
     }
-  }, [currentPage, selectedGroupId, selectedTagId]);
+  }, [currentPage, selectedGroupId, groups]);
 
   useEffect(() => {
     void loadGroups();
@@ -121,8 +141,10 @@ const WatchlistPage: React.FC = () => {
   }, [loadGroups, loadTags]);
 
   useEffect(() => {
-    void loadStocks();
-  }, [loadStocks]);
+    if (groups.length > 0) {
+      void loadItems();
+    }
+  }, [loadItems, groups.length]);
 
   // Reset page when filters change
   useEffect(() => {
@@ -147,7 +169,8 @@ const WatchlistPage: React.FC = () => {
       setNewStockCode('');
       setNewStockName('');
       setAddStockDrawerOpen(false);
-      await loadStocks();
+      await loadItems();
+      await loadGroups(); // Refresh to update stock count
     } catch (err) {
       setAddStockError(getParsedApiError(err).message || '添加失败');
     } finally {
@@ -155,22 +178,24 @@ const WatchlistPage: React.FC = () => {
     }
   };
 
-  // Delete stock
-  const handleDeleteStock = async () => {
-    if (!pendingDeleteStock) return;
-    setDeletingStock(true);
+  // Delete item
+  const handleDeleteItem = async () => {
+    if (!pendingDeleteItem) return;
+    setDeletingItem(true);
     try {
-      await watchlistApi.deleteStock(pendingDeleteStock.code);
-      setPendingDeleteStock(null);
-      if (stocks.length === 1 && currentPage > 1) {
+      const groupId = selectedGroupId === 'all' ? (groups[0]?.id || 0) : selectedGroupId;
+      await watchlistApi.removeItem(pendingDeleteItem.tsCode, groupId);
+      setPendingDeleteItem(null);
+      if (items.length === 1 && currentPage > 1) {
         setCurrentPage(currentPage - 1);
       } else {
-        await loadStocks();
+        await loadItems();
       }
+      await loadGroups(); // Refresh to update stock count
     } catch (err) {
       setError(getParsedApiError(err));
     } finally {
-      setDeletingStock(false);
+      setDeletingItem(false);
     }
   };
 
@@ -242,7 +267,7 @@ const WatchlistPage: React.FC = () => {
     setCreatingGroup(true);
     setGroupError(null);
     try {
-      await watchlistApi.createGroup({ name: newGroupName.trim() });
+      await watchlistApi.createGroup(newGroupName.trim());
       setNewGroupName('');
       setShowCreateGroup(false);
       await loadGroups();
@@ -254,8 +279,8 @@ const WatchlistPage: React.FC = () => {
   };
 
   // Navigate to stock detail
-  const goToDetail = (code: string) => {
-    navigate(`/watchlist/${code}`);
+  const goToDetail = (tsCode: string) => {
+    navigate(`/watchlist/${tsCode}`);
   };
 
   return (
@@ -391,7 +416,7 @@ const WatchlistPage: React.FC = () => {
         <div className="flex items-center justify-center py-12">
           <div className="h-8 w-8 animate-spin rounded-full border-2 border-cyan/20 border-t-cyan" />
         </div>
-      ) : stocks.length === 0 ? (
+      ) : items.length === 0 ? (
         <EmptyState
           title="暂无自选股"
           description="点击右上角「添加股票」按钮，将感兴趣的股票加入自选列表"
@@ -399,74 +424,102 @@ const WatchlistPage: React.FC = () => {
         />
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-          {stocks.map((stock) => (
-            <div
-              key={stock.code}
-              className="group cursor-pointer"
-              onClick={() => goToDetail(stock.code)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  goToDetail(stock.code);
-                }
-              }}
-              role="button"
-              tabIndex={0}
-            >
-              <Card
-                padding="md"
-                hoverable
-                className="relative"
+          {items.map((item) => {
+            const isPositive = (item.changePct ?? 0) >= 0;
+            return (
+              <div
+                key={item.tsCode}
+                className="group cursor-pointer"
+                onClick={() => goToDetail(item.tsCode)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    goToDetail(item.tsCode);
+                  }
+                }}
+                role="button"
+                tabIndex={0}
               >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono font-semibold text-foreground">{stock.code}</span>
-                      {stock.name ? (
-                        <span className="text-sm text-secondary-text truncate">{stock.name}</span>
-                      ) : null}
+                <Card
+                  padding="md"
+                  hoverable
+                  className="relative"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono font-semibold text-foreground">{item.tsCode}</span>
+                        {item.name ? (
+                          <span className="text-sm text-secondary-text truncate">{item.name}</span>
+                        ) : null}
+                      </div>
+
+                      {/* Quote data */}
+                      <div className="mt-2 flex items-center gap-4 text-xs">
+                        {item.close !== undefined ? (
+                          <span className="text-foreground font-medium">
+                            {formatNumber(item.close)}
+                          </span>
+                        ) : null}
+                        {item.changePct !== undefined ? (
+                          <span className={`flex items-center gap-0.5 ${isPositive ? 'text-green-400' : 'text-red-400'}`}>
+                            {isPositive ? (
+                              <TrendingUp className="h-3 w-3" />
+                            ) : (
+                              <TrendingDown className="h-3 w-3" />
+                            )}
+                            {isPositive ? '+' : ''}{formatNumber(item.changePct)}%
+                          </span>
+                        ) : null}
+                      </div>
+
+                      {/* Additional info */}
+                      <div className="mt-1 flex items-center gap-3 text-xs text-secondary-text">
+                        {item.totalMv !== undefined ? (
+                          <span>市值: {formatMarketValue(item.totalMv)}</span>
+                        ) : null}
+                        {item.turnoverRate !== undefined ? (
+                          <span>换手: {formatNumber(item.turnoverRate)}%</span>
+                        ) : null}
+                      </div>
+
+                      {/* Tags */}
+                      <div className="mt-2 flex flex-wrap gap-1">
+                        {item.tags.map((tag) => (
+                          <Badge
+                            key={tag.id}
+                            variant="default"
+                            size="sm"
+                          >
+                            {tag.name}
+                          </Badge>
+                        ))}
+                        {item.industry ? (
+                          <Badge variant="info" size="sm">
+                            {item.industry}
+                          </Badge>
+                        ) : null}
+                      </div>
                     </div>
-                    <div className="mt-2 flex flex-wrap gap-1">
-                      {stock.tags.map((tag) => (
-                        <Badge
-                          key={tag.id}
-                          variant="default"
-                          size="sm"
-                          style={{ borderColor: tag.color, color: tag.color }}
-                        >
-                          {tag.name}
-                        </Badge>
-                      ))}
-                      {stock.group ? (
-                        <Badge variant="info" size="sm">
-                          {stock.group.name}
-                        </Badge>
-                      ) : null}
+                    <div className="flex items-center gap-1">
+                      <ChevronRight className="h-4 w-4 text-secondary-text group-hover:text-cyan transition-colors" />
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setPendingDeleteItem(item);
+                        }}
+                        onKeyDown={(e) => e.stopPropagation()}
+                        className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-secondary-text hover:text-danger hover:bg-danger/10 transition-all"
+                        aria-label="删除"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
                     </div>
-                    {stock.lastAnalysisAt ? (
-                      <p className="mt-2 text-xs text-secondary-text">
-                        上次分析: {new Date(stock.lastAnalysisAt).toLocaleDateString()}
-                      </p>
-                    ) : null}
                   </div>
-                  <div className="flex items-center gap-1">
-                    <ChevronRight className="h-4 w-4 text-secondary-text group-hover:text-cyan transition-colors" />
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setPendingDeleteStock(stock);
-                      }}
-                      onKeyDown={(e) => e.stopPropagation()}
-                      className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-secondary-text hover:text-danger hover:bg-danger/10 transition-all"
-                      aria-label="删除"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </div>
-                </div>
-              </Card>
-            </div>
-          ))}
+                </Card>
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -482,7 +535,7 @@ const WatchlistPage: React.FC = () => {
             上一页
           </button>
           <span className="text-sm text-secondary-text">
-            第 {currentPage} / {totalPages} 页（共 {totalStocks} 只）
+            第 {currentPage} / {totalPages} 页（共 {totalItems} 只）
           </span>
           <button
             type="button"
@@ -681,16 +734,16 @@ const WatchlistPage: React.FC = () => {
         </div>
       </Drawer>
 
-      {/* Delete Stock Confirmation */}
+      {/* Delete Item Confirmation */}
       <ConfirmDialog
-        isOpen={!!pendingDeleteStock}
+        isOpen={!!pendingDeleteItem}
         title="删除自选股"
-        message={`确认从自选列表中删除 ${pendingDeleteStock?.code}${pendingDeleteStock?.name ? ` (${pendingDeleteStock.name})` : ''} 吗？`}
-        confirmText={deletingStock ? '删除中...' : '确认删除'}
+        message={`确认从自选列表中删除 ${pendingDeleteItem?.tsCode}${pendingDeleteItem?.name ? ` (${pendingDeleteItem.name})` : ''} 吗？`}
+        confirmText={deletingItem ? '删除中...' : '确认删除'}
         cancelText="取消"
         isDanger
-        onConfirm={handleDeleteStock}
-        onCancel={() => setPendingDeleteStock(null)}
+        onConfirm={handleDeleteItem}
+        onCancel={() => setPendingDeleteItem(null)}
       />
 
       {/* Delete Tag Confirmation */}
