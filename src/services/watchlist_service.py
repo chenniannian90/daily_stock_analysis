@@ -408,7 +408,12 @@ class WatchlistService:
                     continue
                 try:
                     parts = line.split('="', 1)
-                    sym = parts[0].replace('var hq_str_', '')
+                    sym = parts[0]
+                    # Handle both v_sh600519 and var hq_str_sh600519 formats
+                    if 'hq_str_' in sym:
+                        sym = sym.split('hq_str_')[1]
+                    elif sym.startswith('v_'):
+                        sym = sym[2:]
                     data = parts[1].rstrip('";')
                     fields = data.split('~')
                     if len(fields) < 45:
@@ -424,7 +429,9 @@ class WatchlistService:
 
                     price = float(fields[3]) if fields[3] else None
                     change_pct = float(fields[32]) if fields[32] else None
-                    total_mv = float(fields[45]) if len(fields) > 45 and fields[45] else None
+                    # 总市值：腾讯返回单位亿，转元
+                    mv_raw = float(fields[45]) if len(fields) > 45 and fields[45] else None
+                    total_mv = mv_raw * 100000000 if mv_raw else None
                     turnover = float(fields[38]) if len(fields) > 38 and fields[38] else None
 
                     if price is not None and price > 0:
