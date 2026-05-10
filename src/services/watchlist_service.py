@@ -81,6 +81,7 @@ class WatchlistService:
                 'name': g.name,
                 'sortOrder': order_map.get(g.id, 999),
                 'stockCount': count,
+                'isDefault': False,
             })
 
         # 按 sortOrder 排序（"全部"始终第一）
@@ -91,13 +92,13 @@ class WatchlistService:
     def create_group(self, name: str) -> Dict[str, Any]:
         """创建分组"""
         group = self.repo.create_group(name)
-        return {'id': group.id, 'name': group.name}
+        return {'id': group.id, 'name': group.name, 'sortOrder': 999, 'stockCount': 0, 'isDefault': False}
 
     def update_group(self, group_id: int, name: str) -> Optional[Dict[str, Any]]:
         """更新分组"""
         group = self.repo.update_group(group_id, name)
         if group:
-            return {'id': group.id, 'name': group.name}
+            return {'id': group.id, 'name': group.name, 'sortOrder': 999, 'stockCount': 0, 'isDefault': False}
         return None
 
     def delete_group(self, group_id: int) -> bool:
