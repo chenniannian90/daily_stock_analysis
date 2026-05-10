@@ -339,10 +339,10 @@ class WatchlistService:
                     quote = fetcher.get_realtime_quote(code)
                     if quote:
                         result[code] = {
-                            'close': quote.close,
-                            'changePct': (quote.close - quote.pre_close) / quote.pre_close * 100 if quote.pre_close and quote.pre_close != 0 else 0,
-                            'totalMv': getattr(quote, 'total_mv', None),
-                            'turnoverRate': getattr(quote, 'turnover_rate', None),
+                            'close': quote.price,
+                            'changePct': quote.change_pct,
+                            'totalMv': quote.total_mv,
+                            'turnoverRate': quote.turnover_rate,
                         }
                 except Exception as e:
                     logger.debug(f"获取 {code} 行情失败: {e}")
