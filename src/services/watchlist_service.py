@@ -225,6 +225,14 @@ class WatchlistService:
 
     def set_stock_tags(self, ts_code: str, tag_ids: List[int]) -> bool:
         """设置股票的标签（替换所有标签）"""
+        # 校验请求的 tag ID 都存在
+        if tag_ids:
+            valid_tags = self.repo.list_tags()
+            valid_ids = {t.id for t in valid_tags}
+            invalid = set(tag_ids) - valid_ids
+            if invalid:
+                raise ValueError(f"标签不存在: {sorted(invalid)}")
+
         existing = self.repo.get_stock_tags(ts_code)
         existing_ids = {t.id for t in existing}
         to_remove = existing_ids - set(tag_ids)
@@ -259,13 +267,21 @@ class WatchlistService:
             .offset(offset)
         ).scalars().all()
 
+        # 批量查询回测结果，避免 N+1
+        record_ids = [r.id for r in records]
+        backtest_map = {}
+        if record_ids:
+            backtests = self.repo._session.execute(
+                sa_select(BacktestResult)
+                .where(BacktestResult.analysis_history_id.in_(record_ids))
+            ).scalars().all()
+            for bt in backtests:
+                if bt.analysis_history_id not in backtest_map:
+                    backtest_map[bt.analysis_history_id] = bt
+
         items = []
         for r in records:
-            backtest = self.repo._session.execute(
-                sa_select(BacktestResult)
-                .where(BacktestResult.analysis_history_id == r.id)
-                .limit(1)
-            ).scalar_one_or_none()
+            backtest = backtest_map.get(r.id)
 
             analysis_time = r.created_at.strftime("%H:%M") if r.created_at else None
             analysis_date = r.created_at.strftime("%Y-%m-%d") if r.created_at else None

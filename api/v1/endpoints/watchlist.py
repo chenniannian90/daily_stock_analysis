@@ -199,8 +199,11 @@ def delete_tag(tag_id: int, db: Session = Depends(get_db)):
 def set_stock_tags(code: str, data: StockTagSet, db: Session = Depends(get_db)):
     """设置股票的标签"""
     service = WatchlistService(db)
-    service.set_stock_tags(code, data.tag_ids)
-    return MessageResp(message="success")
+    try:
+        service.set_stock_tags(code, data.tag_ids)
+        return MessageResp(message="success")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 # ========== 分析历史 ==========
