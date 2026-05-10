@@ -1,257 +1,40 @@
 # -*- coding: utf-8 -*-
-"""自选股数据访问层"""
+"""自选股数据访问层 - 升级版"""
 
+import json
 import logging
-from datetime import datetime
-from typing import List, Optional
+import time
+from typing import List, Optional, Dict, Any
 
 from sqlalchemy import delete, select, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from src.storage import (
-    DatabaseManager,
-    WatchlistStock,
-    WatchlistTag,
-    WatchlistStockTag,
-    WatchlistGroup,
-    WatchlistStockGroup,
+    WatchlistItem,
+    WatchlistGroupNew,
+    WatchlistSort,
+    UserTag,
+    StockUserTag,
 )
 
 logger = logging.getLogger(__name__)
+DEFAULT_USER = 'default'
 
 
 class WatchlistRepository:
     """自选股数据访问层"""
 
-    def __init__(self, session: Optional[Session] = None, db_manager: Optional[DatabaseManager] = None):
-        if session:
-            self._session = session
-            self._owns_session = False
-        elif db_manager:
-            self._session = db_manager.get_session()
-            self._owns_session = True
-        else:
-            self._session = DatabaseManager.get_instance().get_session()
-            self._owns_session = True
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        if self._owns_session and self._session:
-            self._session.close()
-
-    def add_stock(self, code: str, name: Optional[str] = None) -> WatchlistStock:
-        """添加自选股"""
-        try:
-            stock = WatchlistStock(code=code, name=name)
-            self._session.add(stock)
-            self._session.commit()
-            logger.info(f"添加自选股: {code} {name}")
-            return stock
-        except IntegrityError:
-            self._session.rollback()
-            raise ValueError(f"股票 {code} 已存在")
-
-    def get_stock_by_code(self, code: str) -> Optional[WatchlistStock]:
-        """按代码查询自选股"""
-        return self._session.execute(
-            select(WatchlistStock).where(WatchlistStock.code == code)
-        ).scalar_one_or_none()
-
-    def delete_stock(self, code: str) -> bool:
-        """删除自选股（级联删除关联）"""
-        stock = self.get_stock_by_code(code)
-        if not stock:
-            return False
-
-        # 级联删除标签关联
-        self._session.execute(
-            delete(WatchlistStockTag).where(WatchlistStockTag.stock_id == stock.id)
-        )
-        # 级联删除分组关联
-        self._session.execute(
-            delete(WatchlistStockGroup).where(WatchlistStockGroup.stock_id == stock.id)
-        )
-        # 删除股票
-        self._session.delete(stock)
-        self._session.commit()
-        logger.info(f"删除自选股: {code}")
-        return True
-
-    def list_stocks(
-        self,
-        group_id: Optional[int] = None,
-        tag_id: Optional[int] = None,
-        limit: int = 100,
-        offset: int = 0,
-    ) -> List[WatchlistStock]:
-        """获取自选股列表"""
-        query = select(WatchlistStock).order_by(WatchlistStock.created_at.desc())
-
-        if group_id:
-            subquery = select(WatchlistStockGroup.stock_id).where(
-                WatchlistStockGroup.group_id == group_id
-            )
-            query = query.where(WatchlistStock.id.in_(subquery))
-
-        if tag_id:
-            subquery = select(WatchlistStockTag.stock_id).where(
-                WatchlistStockTag.tag_id == tag_id
-            )
-            query = query.where(WatchlistStock.id.in_(subquery))
-
-        query = query.limit(limit).offset(offset)
-        return list(self._session.execute(query).scalars().all())
-
-    def count_stocks(
-        self,
-        group_id: Optional[int] = None,
-        tag_id: Optional[int] = None,
-    ) -> int:
-        """统计自选股数量"""
-        query = select(func.count(WatchlistStock.id))
-
-        if group_id:
-            subquery = select(WatchlistStockGroup.stock_id).where(
-                WatchlistStockGroup.group_id == group_id
-            )
-            query = query.where(WatchlistStock.id.in_(subquery))
-
-        if tag_id:
-            subquery = select(WatchlistStockTag.stock_id).where(
-                WatchlistStockTag.tag_id == tag_id
-            )
-            query = query.where(WatchlistStock.id.in_(subquery))
-
-        return self._session.execute(query).scalar() or 0
-
-    def update_stock_last_analysis(self, code: str) -> None:
-        """更新最后分析时间"""
-        stock = self.get_stock_by_code(code)
-        if stock:
-            stock.last_analysis_at = datetime.now()
-            self._session.commit()
-
-    # ========== 标签操作 ==========
-
-    def create_tag(self, name: str, color: str = "#6b7280") -> WatchlistTag:
-        """创建标签"""
-        try:
-            tag = WatchlistTag(name=name, color=color)
-            self._session.add(tag)
-            self._session.commit()
-            logger.info(f"创建标签: {name}")
-            return tag
-        except IntegrityError:
-            self._session.rollback()
-            raise ValueError(f"标签 '{name}' 已存在")
-
-    def get_tag_by_id(self, tag_id: int) -> Optional[WatchlistTag]:
-        """按ID查询标签"""
-        return self._session.execute(
-            select(WatchlistTag).where(WatchlistTag.id == tag_id)
-        ).scalar_one_or_none()
-
-    def list_tags(self) -> List[WatchlistTag]:
-        """获取所有标签"""
-        return list(self._session.execute(
-            select(WatchlistTag).order_by(WatchlistTag.created_at)
-        ).scalars().all())
-
-    def update_tag(self, tag_id: int, name: Optional[str] = None, color: Optional[str] = None) -> Optional[WatchlistTag]:
-        """更新标签"""
-        tag = self.get_tag_by_id(tag_id)
-        if not tag:
-            return None
-        if name:
-            tag.name = name
-        if color:
-            tag.color = color
-        self._session.commit()
-        return tag
-
-    def delete_tag(self, tag_id: int) -> bool:
-        """删除标签（级联删除关联）"""
-        tag = self.get_tag_by_id(tag_id)
-        if not tag:
-            return False
-        self._session.execute(
-            delete(WatchlistStockTag).where(WatchlistStockTag.tag_id == tag_id)
-        )
-        self._session.delete(tag)
-        self._session.commit()
-        logger.info(f"删除标签: {tag.name}")
-        return True
-
-    def add_tag_to_stock(self, code: str, tag_id: int) -> bool:
-        """给股票添加标签"""
-        stock = self.get_stock_by_code(code)
-        if not stock:
-            raise ValueError(f"股票 {code} 不存在")
-
-        try:
-            assoc = WatchlistStockTag(stock_id=stock.id, tag_id=tag_id)
-            self._session.add(assoc)
-            self._session.commit()
-            return True
-        except IntegrityError:
-            self._session.rollback()
-            return False  # 已关联
-
-    def remove_tag_from_stock(self, code: str, tag_id: int) -> bool:
-        """移除股票标签"""
-        stock = self.get_stock_by_code(code)
-        if not stock:
-            return False
-
-        result = self._session.execute(
-            delete(WatchlistStockTag).where(
-                WatchlistStockTag.stock_id == stock.id,
-                WatchlistStockTag.tag_id == tag_id,
-            )
-        )
-        self._session.commit()
-        return result.rowcount > 0
-
-    def get_stock_tags(self, code: str) -> List[WatchlistTag]:
-        """获取股票的所有标签"""
-        stock = self.get_stock_by_code(code)
-        if not stock:
-            return []
-
-        return list(self._session.execute(
-            select(WatchlistTag)
-            .join(WatchlistStockTag, WatchlistTag.id == WatchlistStockTag.tag_id)
-            .where(WatchlistStockTag.stock_id == stock.id)
-        ).scalars().all())
-
-    def get_all_stock_tags(self, stock_ids: List[int]) -> dict[int, List[WatchlistTag]]:
-        """批量获取多只股票的标签，避免 N+1 查询"""
-        if not stock_ids:
-            return {}
-
-        # 一次查询获取所有关联
-        results = self._session.execute(
-            select(WatchlistStockTag.stock_id, WatchlistTag)
-            .join(WatchlistTag, WatchlistStockTag.tag_id == WatchlistTag.id)
-            .where(WatchlistStockTag.stock_id.in_(stock_ids))
-        ).all()
-
-        # 按 stock_id 分组
-        tags_map: dict[int, List[WatchlistTag]] = {sid: [] for sid in stock_ids}
-        for stock_id, tag in results:
-            tags_map[stock_id].append(tag)
-
-        return tags_map
+    def __init__(self, session: Session, user_id: str = DEFAULT_USER):
+        self._session = session
+        self._user_id = user_id
 
     # ========== 分组操作 ==========
 
-    def create_group(self, name: str, sort_order: int = 0) -> WatchlistGroup:
+    def create_group(self, name: str) -> WatchlistGroupNew:
         """创建分组"""
         try:
-            group = WatchlistGroup(name=name, sort_order=sort_order)
+            group = WatchlistGroupNew(user_id=self._user_id, name=name)
             self._session.add(group)
             self._session.commit()
             logger.info(f"创建分组: {name}")
@@ -260,125 +43,301 @@ class WatchlistRepository:
             self._session.rollback()
             raise ValueError(f"分组 '{name}' 已存在")
 
-    def get_group_by_id(self, group_id: int) -> Optional[WatchlistGroup]:
+    def get_group_by_id(self, group_id: int) -> Optional[WatchlistGroupNew]:
         """按ID查询分组"""
         return self._session.execute(
-            select(WatchlistGroup).where(WatchlistGroup.id == group_id)
+            select(WatchlistGroupNew).where(
+                WatchlistGroupNew.id == group_id,
+                WatchlistGroupNew.user_id == self._user_id,
+            )
         ).scalar_one_or_none()
 
-    def list_groups(self) -> List[WatchlistGroup]:
-        """获取所有分组（按sort_order排序）"""
+    def list_groups(self) -> List[WatchlistGroupNew]:
+        """获取所有分组"""
         return list(self._session.execute(
-            select(WatchlistGroup).order_by(WatchlistGroup.sort_order)
+            select(WatchlistGroupNew).where(
+                WatchlistGroupNew.user_id == self._user_id
+            )
         ).scalars().all())
 
-    def update_group(self, group_id: int, name: Optional[str] = None, sort_order: Optional[int] = None) -> Optional[WatchlistGroup]:
-        """更新分组"""
+    def update_group(self, group_id: int, name: str) -> Optional[WatchlistGroupNew]:
+        """更新分组名称"""
         group = self.get_group_by_id(group_id)
         if not group:
             return None
-        if name:
-            group.name = name
-        if sort_order is not None:
-            group.sort_order = sort_order
+        group.name = name
         self._session.commit()
         return group
 
     def delete_group(self, group_id: int) -> bool:
-        """删除分组（股票移出分组，不删除股票）"""
+        """删除分组（同时删除该分组下的条目）"""
         group = self.get_group_by_id(group_id)
         if not group:
             return False
+
+        # 删除分组下的条目
         self._session.execute(
-            delete(WatchlistStockGroup).where(WatchlistStockGroup.group_id == group_id)
+            delete(WatchlistItem).where(
+                WatchlistItem.user_id == self._user_id,
+                WatchlistItem.group_id == group_id,
+            )
         )
+
         self._session.delete(group)
         self._session.commit()
         logger.info(f"删除分组: {group.name}")
         return True
 
-    def set_stock_group(self, code: str, group_id: int) -> bool:
-        """设置股票所属分组"""
-        stock = self.get_stock_by_code(code)
-        if not stock:
-            raise ValueError(f"股票 {code} 不存在")
+    def get_group_order(self) -> List[int]:
+        """获取分组排序"""
+        sort = self._session.execute(
+            select(WatchlistSort).where(
+                WatchlistSort.user_id == self._user_id,
+                WatchlistSort.sort_type == 'group_order',
+            )
+        ).scalar_one_or_none()
 
-        # 先移除旧分组
-        self._session.execute(
-            delete(WatchlistStockGroup).where(WatchlistStockGroup.stock_id == stock.id)
-        )
+        if sort and sort.sort_content:
+            return json.loads(sort.sort_content)
+        return []
 
-        # 添加新分组
-        assoc = WatchlistStockGroup(stock_id=stock.id, group_id=group_id)
-        self._session.add(assoc)
+    def set_group_order(self, group_ids: List[int]) -> None:
+        """设置分组排序"""
+        sort = self._session.execute(
+            select(WatchlistSort).where(
+                WatchlistSort.user_id == self._user_id,
+                WatchlistSort.sort_type == 'group_order',
+            )
+        ).scalar_one_or_none()
+
+        content = json.dumps(group_ids)
+        if sort:
+            sort.sort_content = content
+        else:
+            sort = WatchlistSort(
+                user_id=self._user_id,
+                sort_type='group_order',
+                sort_content=content,
+            )
+            self._session.add(sort)
         self._session.commit()
-        return True
 
-    def remove_stock_from_group(self, code: str) -> bool:
-        """移出分组"""
-        stock = self.get_stock_by_code(code)
-        if not stock:
-            return False
+    def count_items_in_group(self, group_id: int) -> int:
+        """统计分组内条目数量"""
+        return self._session.execute(
+            select(func.count(WatchlistItem.id)).where(
+                WatchlistItem.user_id == self._user_id,
+                WatchlistItem.group_id == group_id,
+            )
+        ).scalar() or 0
 
+    # ========== 条目操作 ==========
+
+    def add_item(self, ts_code: str, group_ids: List[int]) -> bool:
+        """添加条目到多个分组"""
+        if not group_ids:
+            group_ids = [0]  # 默认未分组
+
+        added = False
+        for group_id in group_ids:
+            try:
+                item = WatchlistItem(
+                    user_id=self._user_id,
+                    watch_type='stock',
+                    group_id=group_id,
+                    ts_code=ts_code,
+                    sort_num=0,
+                )
+                self._session.add(item)
+                self._session.commit()
+                added = True
+                logger.info(f"添加条目: {ts_code} 到分组 {group_id}")
+            except IntegrityError:
+                self._session.rollback()
+
+        return added
+
+    def remove_item(self, ts_code: str, group_id: int) -> bool:
+        """从指定分组删除条目"""
         result = self._session.execute(
-            delete(WatchlistStockGroup).where(WatchlistStockGroup.stock_id == stock.id)
+            delete(WatchlistItem).where(
+                WatchlistItem.user_id == self._user_id,
+                WatchlistItem.ts_code == ts_code,
+                WatchlistItem.group_id == group_id,
+            )
         )
         self._session.commit()
         return result.rowcount > 0
 
-    def get_stock_group(self, code: str) -> Optional[WatchlistGroup]:
-        """获取股票所属分组"""
-        stock = self.get_stock_by_code(code)
-        if not stock:
-            return None
+    def list_items(self, group_id: int, size: int = 20, offset: int = 0) -> tuple:
+        """获取条目列表"""
+        if group_id == 0:
+            # "全部"分组：聚合所有条目并去重
+            all_items = self._session.execute(
+                select(WatchlistItem).where(
+                    WatchlistItem.user_id == self._user_id,
+                ).order_by(
+                    WatchlistItem.sort_num.desc(),
+                    WatchlistItem.id.asc(),
+                )
+            ).scalars().all()
 
-        return self._session.execute(
-            select(WatchlistGroup)
-            .join(WatchlistStockGroup, WatchlistGroup.id == WatchlistStockGroup.group_id)
-            .where(WatchlistStockGroup.stock_id == stock.id)
+            # 去重
+            seen = set()
+            unique_items = []
+            for item in all_items:
+                if item.ts_code not in seen:
+                    seen.add(item.ts_code)
+                    unique_items.append(item)
+
+            total = len(unique_items)
+            return unique_items[offset:offset + size], total
+        else:
+            # 指定分组
+            items = self._session.execute(
+                select(WatchlistItem).where(
+                    WatchlistItem.user_id == self._user_id,
+                    WatchlistItem.group_id == group_id,
+                ).order_by(
+                    WatchlistItem.sort_num.desc(),
+                    WatchlistItem.id.asc(),
+                ).limit(size).offset(offset)
+            ).scalars().all()
+
+            total = self._session.execute(
+                select(func.count(WatchlistItem.id)).where(
+                    WatchlistItem.user_id == self._user_id,
+                    WatchlistItem.group_id == group_id,
+                )
+            ).scalar() or 0
+
+            return list(items), total
+
+    def move_item(self, ts_code: str, from_group_id: int, to_group_id: int) -> bool:
+        """移动条目到其他分组"""
+        self.remove_item(ts_code, from_group_id)
+        return self.add_item(ts_code, [to_group_id])
+
+    def sort_items(self, group_id: int, items: List[Dict[str, Any]]) -> bool:
+        """排序条目（置顶/置底）"""
+        now = int(time.time())
+        for entry in items:
+            ts_code = entry.get('ts_code')
+            action = entry.get('action')
+
+            item = self._session.execute(
+                select(WatchlistItem).where(
+                    WatchlistItem.user_id == self._user_id,
+                    WatchlistItem.group_id == group_id,
+                    WatchlistItem.ts_code == ts_code,
+                )
+            ).scalar_one_or_none()
+
+            if item:
+                if action == 'top':
+                    item.sort_num = now
+                elif action == 'bottom':
+                    item.sort_num = -now
+
+        self._session.commit()
+        return True
+
+    def get_all_ts_codes(self) -> List[str]:
+        """获取所有条目的代码（去重）"""
+        items = self._session.execute(
+            select(WatchlistItem.ts_code).where(
+                WatchlistItem.user_id == self._user_id,
+            ).distinct()
+        ).scalars().all()
+        return list(items)
+
+    # ========== 标签操作 ==========
+
+    def create_tag(self, name: str) -> UserTag:
+        """创建标签"""
+        try:
+            tag = UserTag(user_id=self._user_id, name=name)
+            self._session.add(tag)
+            self._session.commit()
+            logger.info(f"创建标签: {name}")
+            return tag
+        except IntegrityError:
+            self._session.rollback()
+            raise ValueError(f"标签 '{name}' 已存在")
+
+    def list_tags(self) -> List[UserTag]:
+        """获取所有标签"""
+        return list(self._session.execute(
+            select(UserTag).where(UserTag.user_id == self._user_id)
+        ).scalars().all())
+
+    def delete_tag(self, tag_id: int) -> bool:
+        """删除标签"""
+        tag = self._session.execute(
+            select(UserTag).where(
+                UserTag.id == tag_id,
+                UserTag.user_id == self._user_id,
+            )
         ).scalar_one_or_none()
 
-    def get_all_stock_groups(self, stock_ids: List[int]) -> dict[int, Optional[WatchlistGroup]]:
-        """批量获取多只股票的分组，避免 N+1 查询"""
-        if not stock_ids:
-            return {}
+        if not tag:
+            return False
 
-        # 一次查询获取所有关联
-        results = self._session.execute(
-            select(WatchlistStockGroup.stock_id, WatchlistGroup)
-            .join(WatchlistGroup, WatchlistStockGroup.group_id == WatchlistGroup.id)
-            .where(WatchlistStockGroup.stock_id.in_(stock_ids))
-        ).all()
+        self._session.execute(
+            delete(StockUserTag).where(StockUserTag.tag_id == tag_id)
+        )
 
-        # 按 stock_id 分组（每只股票最多一个分组）
-        groups_map: dict[int, Optional[WatchlistGroup]] = {sid: None for sid in stock_ids}
-        for stock_id, group in results:
-            groups_map[stock_id] = group
+        self._session.delete(tag)
+        self._session.commit()
+        return True
 
-        return groups_map
+    def add_tag_to_stock(self, ts_code: str, tag_id: int) -> bool:
+        """给股票添加标签"""
+        try:
+            assoc = StockUserTag(
+                user_id=self._user_id,
+                ts_code=ts_code,
+                tag_id=tag_id,
+            )
+            self._session.add(assoc)
+            self._session.commit()
+            return True
+        except IntegrityError:
+            self._session.rollback()
+            return False
 
-    def get_latest_predictions(self, codes: List[str]) -> dict[str, dict]:
-        """批量获取股票最新预测和建议"""
-        if not codes:
-            return {}
+    def remove_tag_from_stock(self, ts_code: str, tag_id: int) -> bool:
+        """移除股票标签"""
+        result = self._session.execute(
+            delete(StockUserTag).where(
+                StockUserTag.user_id == self._user_id,
+                StockUserTag.ts_code == ts_code,
+                StockUserTag.tag_id == tag_id,
+            )
+        )
+        self._session.commit()
+        return result.rowcount > 0
 
-        from src.storage import AnalysisHistory
+    def get_stock_tags(self, ts_code: str) -> List[UserTag]:
+        """获取股票的所有标签"""
+        assocs = self._session.execute(
+            select(StockUserTag).where(
+                StockUserTag.user_id == self._user_id,
+                StockUserTag.ts_code == ts_code,
+            )
+        ).scalars().all()
 
-        # 使用子查询获取每只股票最新的分析记录
-        # SQLite 不支持 DISTINCT ON，使用窗口函数
-        results = self._session.execute(
-            select(AnalysisHistory.code, AnalysisHistory.trend_prediction, AnalysisHistory.operation_advice)
-            .where(AnalysisHistory.code.in_(codes))
-            .order_by(AnalysisHistory.code, AnalysisHistory.created_at.desc())
-        ).all()
+        tag_ids = [a.tag_id for a in assocs]
+        if not tag_ids:
+            return []
 
-        # 按 code 去重，只保留最新的
-        predictions_map: dict[str, dict] = {}
-        for code, prediction, advice in results:
-            if code not in predictions_map:
-                predictions_map[code] = {
-                    "trend_prediction": prediction,
-                    "operation_advice": advice,
-                }
+        return list(self._session.execute(
+            select(UserTag).where(UserTag.id.in_(tag_ids))
+        ).scalars().all())
 
-        return predictions_map
+    def get_all_stock_tags(self, ts_codes: List[str]) -> Dict[str, List[UserTag]]:
+        """批量获取多只股票的标签"""
+        result = {}
+        for code in ts_codes:
+            result[code] = self.get_stock_tags(code)
+        return result
