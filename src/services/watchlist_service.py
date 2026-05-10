@@ -1,83 +1,239 @@
 # -*- coding: utf-8 -*-
-"""自选股业务逻辑"""
+"""自选股业务逻辑 - 升级版"""
 
+import json
 import logging
-from datetime import datetime
-from typing import List, Optional
+from pathlib import Path
+from typing import List, Dict, Any, Optional
 
-from src.config import get_config
+from sqlalchemy.orm import Session
+
+from data_provider.base import DataFetcherManager
 from src.repositories.watchlist_repo import WatchlistRepository
-from src.storage import DatabaseManager
 
 logger = logging.getLogger(__name__)
+
+# Cache for stocks index
+_stocks_index_cache: Optional[List[List]] = None
+_stocks_index_cache_time: float = 0
+
+
+def _load_stocks_index() -> List[List]:
+    """Load stocks index from JSON file with cache."""
+    global _stocks_index_cache, _stocks_index_cache_time
+    import time
+
+    current_time = time.time()
+    # Cache for 5 minutes
+    if _stocks_index_cache is not None and (current_time - _stocks_index_cache_time) < 300:
+        return _stocks_index_cache
+
+    # Try multiple paths
+    possible_paths = [
+        Path(__file__).parent.parent.parent / "static" / "stocks.index.json",
+        Path(__file__).parent.parent.parent / "apps" / "dsa-web" / "public" / "stocks.index.json",
+    ]
+
+    for path in possible_paths:
+        if path.exists():
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    _stocks_index_cache = json.load(f)
+                    _stocks_index_cache_time = current_time
+                    return _stocks_index_cache
+            except Exception as e:
+                logger.warning(f"Failed to load stocks index from {path}: {e}")
+
+    logger.warning("Stocks index file not found, returning empty list")
+    return []
 
 
 class WatchlistService:
     """自选股业务逻辑"""
 
-    def __init__(self, db_manager: Optional[DatabaseManager] = None):
-        self.db = db_manager or DatabaseManager.get_instance()
-        self.repo = WatchlistRepository(db_manager=self.db)
+    def __init__(self, session: Session, user_id: str = 'default'):
+        self.repo = WatchlistRepository(session, user_id)
 
-    def get_all_watchlist_codes(self) -> List[str]:
-        """获取所有自选股代码"""
-        stocks = self.repo.list_stocks(limit=1000)
-        return [s.code for s in stocks]
+    # ========== 分组操作 ==========
 
-    def run_scheduled_analysis(self, analysis_time: str = "morning") -> dict:
-        """
-        执行定时分析（遍历所有自选股）
+    def list_groups(self) -> Dict[str, Any]:
+        """获取分组列表"""
+        groups = self.repo.list_groups()
+        order = self.repo.get_group_order()
+        order_map = {gid: i for i, gid in enumerate(order)}
 
-        Args:
-            analysis_time: "morning" (11:30) 或 "evening" (19:00)
+        # 构建"全部"虚拟分组
+        all_codes = self.repo.get_all_ts_codes()
+        total_count = len(all_codes)
 
-        Returns:
-            统计结果: {total, success, failed, errors}
-        """
-        from src.core.pipeline import StockAnalysisPipeline
+        infos = [{
+            'id': 0,
+            'name': '全部',
+            'sortOrder': 0,
+            'stockCount': total_count,
+            'isDefault': True,
+        }]
 
-        codes = self.get_all_watchlist_codes()
-        total = len(codes)
-        success = 0
-        failed = 0
-        errors = []
+        for g in groups:
+            count = self.repo.count_items_in_group(g.id)
+            infos.append({
+                'id': g.id,
+                'name': g.name,
+                'sortOrder': order_map.get(g.id, 999),
+                'stockCount': count,
+            })
 
-        if total == 0:
-            logger.info("自选股列表为空，跳过分析")
-            return {"total": 0, "success": 0, "failed": 0, "errors": []}
+        # 按 sortOrder 排序（"全部"始终第一）
+        infos[1:] = sorted(infos[1:], key=lambda x: x['sortOrder'])
 
-        logger.info(f"开始自选股定时分析 [{analysis_time}]，共 {total} 只股票")
+        return {'groups': infos}
 
-        config = get_config()
-        pipeline = StockAnalysisPipeline(config=config)
+    def create_group(self, name: str) -> Dict[str, Any]:
+        """创建分组"""
+        group = self.repo.create_group(name)
+        return {'id': group.id, 'name': group.name}
 
-        for code in codes:
-            try:
-                logger.info(f"分析自选股: {code}")
-                pipeline.run(code)
-                self.repo.update_stock_last_analysis(code)
-                success += 1
-            except Exception as e:
-                logger.error(f"分析 {code} 失败: {e}")
-                failed += 1
-                errors.append({"code": code, "error": str(e)})
+    def update_group(self, group_id: int, name: str) -> Optional[Dict[str, Any]]:
+        """更新分组"""
+        group = self.repo.update_group(group_id, name)
+        if group:
+            return {'id': group.id, 'name': group.name}
+        return None
 
-        logger.info(f"自选股定时分析完成 [{analysis_time}]: 成功 {success}, 失败 {failed}")
+    def delete_group(self, group_id: int) -> bool:
+        """删除分组"""
+        return self.repo.delete_group(group_id)
 
-        return {
-            "total": total,
-            "success": success,
-            "failed": failed,
-            "errors": errors[:10],
-        }
-
-    def is_trading_day(self, date: Optional[datetime] = None) -> bool:
-        """
-        判断是否交易日（简单实现：排除周末）
-
-        Note: 实际应接入交易日历 API
-        """
-        d = date or datetime.now()
-        if d.weekday() >= 5:
-            return False
+    def sort_groups(self, group_ids: List[int]) -> bool:
+        """分组排序"""
+        self.repo.set_group_order(group_ids)
         return True
+
+    # ========== 条目操作 ==========
+
+    def list_items(self, group_id: int, size: int = 20, offset: int = 0) -> Dict[str, Any]:
+        """获取条目列表（含行情数据）"""
+        items, total = self.repo.list_items(group_id, size, offset)
+
+        if not items:
+            return {'items': [], 'total': 0}
+
+        # 获取所有代码
+        ts_codes = [item.ts_code for item in items]
+
+        # 批量获取名称和行情
+        name_map = self._fetch_stock_names(ts_codes)
+        quote_map = self._fetch_quotes(ts_codes)
+        tag_map = self.repo.get_all_stock_tags(ts_codes)
+
+        # 构建返回数据
+        result_items = []
+        for item in items:
+            info = {
+                'tsCode': item.ts_code,
+                'name': name_map.get(item.ts_code, item.ts_code),
+                'tags': [{'id': t.id, 'name': t.name} for t in tag_map.get(item.ts_code, [])],
+            }
+
+            # 添加行情数据
+            if item.ts_code in quote_map:
+                quote = quote_map[item.ts_code]
+                info['close'] = quote.get('close')
+                info['changePct'] = quote.get('changePct')
+                info['totalMv'] = quote.get('totalMv')
+                info['turnoverRate'] = quote.get('turnoverRate')
+
+            result_items.append(info)
+
+        return {'items': result_items, 'total': total}
+
+    def add_item(self, ts_code: str, group_ids: List[int]) -> bool:
+        """添加条目"""
+        return self.repo.add_item(ts_code, group_ids)
+
+    def remove_item(self, ts_code: str, group_id: int) -> bool:
+        """删除条目"""
+        return self.repo.remove_item(ts_code, group_id)
+
+    def move_item(self, ts_code: str, from_group_id: int, to_group_id: int) -> bool:
+        """移动条目"""
+        return self.repo.move_item(ts_code, from_group_id, to_group_id)
+
+    def sort_items(self, group_id: int, items: List[Dict[str, Any]]) -> bool:
+        """条目排序"""
+        return self.repo.sort_items(group_id, items)
+
+    def search_stocks(self, keyword: str, limit: int = 10) -> List[Dict[str, Any]]:
+        """搜索股票"""
+        keyword_lower = keyword.lower()
+        results = []
+
+        try:
+            stocks_index = _load_stocks_index()
+            for entry in stocks_index:
+                if len(results) >= limit:
+                    break
+
+                # entry format: [ts_code, code, name, pinyin_full, pinyin_abbr, aliases, region, type, is_active, priority]
+                if len(entry) < 6:
+                    continue
+
+                ts_code = entry[0]
+                code = entry[1]
+                name = entry[2]
+                pinyin_full = entry[3] if len(entry) > 3 else ""
+                pinyin_abbr = entry[4] if len(entry) > 4 else ""
+
+                # Search by code, name, or pinyin
+                if (keyword_lower in code.lower() or
+                    keyword_lower in name.lower() or
+                    keyword_lower in pinyin_full.lower() or
+                    keyword_lower in pinyin_abbr.lower()):
+                    results.append({
+                        'tsCode': ts_code,
+                        'name': name,
+                    })
+
+        except Exception as e:
+            logger.error(f"搜索股票失败: {e}")
+
+        return results
+
+    # ========== 私有方法 ==========
+
+    def _fetch_stock_names(self, ts_codes: List[str]) -> Dict[str, str]:
+        """批量获取股票名称"""
+        result = {}
+        try:
+            fetcher = DataFetcherManager()
+            for code in ts_codes:
+                try:
+                    name = fetcher.get_stock_name(code, allow_realtime=False)
+                    if name:
+                        result[code] = name
+                except Exception:
+                    pass
+        except Exception as e:
+            logger.warning(f"获取股票名称失败: {e}")
+        return result
+
+    def _fetch_quotes(self, ts_codes: List[str]) -> Dict[str, Dict[str, Any]]:
+        """批量获取行情数据"""
+        result = {}
+        try:
+            fetcher = DataFetcherManager()
+            for code in ts_codes:
+                try:
+                    quote = fetcher.get_realtime_quote(code)
+                    if quote:
+                        result[code] = {
+                            'close': quote.close,
+                            'changePct': (quote.close - quote.pre_close) / quote.pre_close * 100 if quote.pre_close else 0,
+                            'totalMv': getattr(quote, 'total_mv', None),
+                            'turnoverRate': getattr(quote, 'turnover_rate', None),
+                        }
+                except Exception as e:
+                    logger.debug(f"获取 {code} 行情失败: {e}")
+        except Exception as e:
+            logger.warning(f"获取行情数据失败: {e}")
+        return result
