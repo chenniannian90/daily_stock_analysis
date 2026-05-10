@@ -369,7 +369,7 @@ class WatchlistService:
         return result
 
     def _fetch_quotes(self, ts_codes: List[str]) -> Dict[str, Dict[str, Any]]:
-        """批量获取行情数据（并行请求）"""
+        """批量获取行情数据（并行 + 跳过慢速数据源）"""
         result = {}
         if not ts_codes:
             return result
@@ -378,9 +378,15 @@ class WatchlistService:
 
         def _fetch_one(code: str) -> tuple:
             try:
-                fetcher = DataFetcherManager()
+                from data_provider.efinance_fetcher import EfinanceFetcher
+                from data_provider.akshare_fetcher import AkshareFetcher
+                # Watchlist 只用快速的 HTTP 源，跳过 Tushare（login/logout 开销大）
+                fetcher = DataFetcherManager(fetchers=[
+                    EfinanceFetcher(),
+                    AkshareFetcher(),
+                ])
                 quote = fetcher.get_realtime_quote(code, log_final_failure=False)
-                if quote:
+                if quote and quote.has_basic_data():
                     return (code, {
                         'close': quote.price,
                         'changePct': quote.change_pct,
