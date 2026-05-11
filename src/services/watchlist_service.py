@@ -112,6 +112,10 @@ class WatchlistService:
         self.repo.set_group_order(group_ids)
         return True
 
+    def get_all_ts_codes(self) -> List[str]:
+        """获取所有自选股代码（去重）"""
+        return self.repo.get_all_ts_codes()
+
     # ========== 条目操作 ==========
 
     def list_items(self, group_id: int, size: int = 20, offset: int = 0) -> Dict[str, Any]:
@@ -135,7 +139,7 @@ class WatchlistService:
             info = {
                 'tsCode': item.ts_code,
                 'name': name_map.get(item.ts_code, item.ts_code),
-                'tags': [{'id': t.id, 'name': t.name} for t in tag_map.get(item.ts_code, [])],
+                'tags': [{'id': t.id, 'name': t.name, 'color': t.color} for t in tag_map.get(item.ts_code, [])],
             }
 
             # 添加行情数据
