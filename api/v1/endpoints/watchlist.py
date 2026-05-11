@@ -199,7 +199,7 @@ def delete_tag(tag_id: int, db: Session = Depends(get_db)):
 def get_stock_tags(code: str, db: Session = Depends(get_db)):
     """获取某只股票的标签"""
     service = WatchlistService(db)
-    return [TagInfo(id=t.id, name=t.name) for t in service.get_stock_tags(code)]
+    return [TagInfo(id=t.id, name=t.name, color=t.color) for t in service.get_stock_tags(code)]
 
 
 @router.post("/stocks/{code}/tags", response_model=MessageResp, summary="设置股票标签")

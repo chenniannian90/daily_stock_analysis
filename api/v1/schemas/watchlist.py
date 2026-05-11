@@ -92,6 +92,7 @@ class TagInfo(BaseModel):
     """标签信息"""
     id: int
     name: str
+    color: str = "#00d4ff"
 
     class Config:
         from_attributes = True

@@ -17,7 +17,8 @@ import {
   Select,
   TagPickerDrawer,
 } from '../components/common';
-import type { GroupInfo, ItemInfo, TagItem, ItemSearchInfo } from '../types/watchlist';
+import type { GroupInfo, ItemInfo, TagItem } from '../types/watchlist';
+import { StockAutocomplete } from '../components/StockAutocomplete';
 
 const DEFAULT_PAGE_SIZE = 20;
 
@@ -59,13 +60,8 @@ const WatchlistPage: React.FC = () => {
   // Add stock drawer
   const [addStockDrawerOpen, setAddStockDrawerOpen] = useState(false);
   const [newStockCode, setNewStockCode] = useState('');
-  const [newStockName, setNewStockName] = useState('');
   const [addingStock, setAddingStock] = useState(false);
   const [addStockError, setAddStockError] = useState<string | null>(null);
-
-  // Search suggestions
-  const [searchResults, setSearchResults] = useState<ItemSearchInfo[]>([]);
-  const [searchLoading, setSearchLoading] = useState(false);
 
   // Manage tags drawer
   const [tagsDrawerOpen, setTagsDrawerOpen] = useState(false);
@@ -166,24 +162,21 @@ const WatchlistPage: React.FC = () => {
     setCurrentPage(1);
   }, [selectedGroupId, selectedTagId]);
 
-  // Add stock
-  const handleAddStock = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newStockCode.trim()) {
+  // Add stock (called by StockAutocomplete onSubmit)
+  const handleAddStock = async (code: string, _name?: string) => {
+    if (!code.trim()) {
       setAddStockError('请输入股票代码');
       return;
     }
     setAddingStock(true);
     setAddStockError(null);
     try {
-      // Use new API: addItem(tsCode, groupIds)
       const groupId = selectedGroupId === 'all' ? 0 : selectedGroupId;
-      await watchlistApi.addItem(newStockCode.trim(), [groupId]);
+      await watchlistApi.addItem(code.trim(), [groupId]);
       setNewStockCode('');
-      setNewStockName('');
       setAddStockDrawerOpen(false);
       await loadItems();
-      await loadGroups(); // Refresh to update stock count
+      await loadGroups();
     } catch (err) {
       setAddStockError(getParsedApiError(err).message || '添加失败');
     } finally {
@@ -214,42 +207,6 @@ const WatchlistPage: React.FC = () => {
     }
   };
 
-  // Search stocks with debounce
-  const handleSearchStocks = useCallback(async (keyword: string) => {
-    if (!keyword.trim() || keyword.length < 1) {
-      setSearchResults([]);
-      return;
-    }
-    setSearchLoading(true);
-    try {
-      const results = await watchlistApi.searchStocks(keyword, 10);
-      setSearchResults(results.items || []);
-    } catch (err) {
-      console.error('Search failed:', err);
-      setSearchResults([]);
-    } finally {
-      setSearchLoading(false);
-    }
-  }, []);
-
-  // Debounced search effect
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (newStockCode.trim()) {
-        handleSearchStocks(newStockCode);
-      } else {
-        setSearchResults([]);
-      }
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [newStockCode, handleSearchStocks]);
-
-  // Select search suggestion
-  const handleSelectSearchResult = (result: ItemSearchInfo) => {
-    setNewStockCode(result.tsCode);
-    setNewStockName(result.name);
-    setSearchResults([]);
-  };
 
   // Open edit tags drawer
   const handleOpenEditTags = (item: ItemInfo) => {
@@ -677,7 +634,7 @@ const WatchlistPage: React.FC = () => {
                           </span>
                         ) : null}
                         {item.changePct !== undefined ? (
-                          <span className={`flex items-center gap-0.5 ${isPositive ? 'text-green-400' : 'text-red-400'}`}>
+                          <span className={`flex items-center gap-0.5 ${isPositive ? 'text-red-400' : 'text-green-400'}`}>
                             {isPositive ? (
                               <TrendingUp className="h-3 w-3" />
                             ) : (
@@ -705,6 +662,11 @@ const WatchlistPage: React.FC = () => {
                             key={tag.id}
                             variant="default"
                             size="sm"
+                            style={{
+                              borderColor: tag.color || '#00d4ff',
+                              backgroundColor: `${tag.color || '#00d4ff'}18`,
+                              color: tag.color || '#00d4ff',
+                            }}
                           >
                             {tag.name}
                           </Badge>
@@ -799,9 +761,7 @@ const WatchlistPage: React.FC = () => {
         onClose={() => {
           setAddStockDrawerOpen(false);
           setNewStockCode('');
-          setNewStockName('');
           setAddStockError(null);
-          setSearchResults([]);
         }}
         title="添加自选股"
       >
@@ -812,46 +772,13 @@ const WatchlistPage: React.FC = () => {
             message={addStockError}
           />
         ) : null}
-        <form onSubmit={handleAddStock} className="space-y-4">
-          <div className="relative">
-            <Input
-              label="股票代码"
-              value={newStockCode}
-              onChange={(e) => setNewStockCode(e.target.value)}
-              placeholder="输入代码/名称/拼音搜索"
-              required
-            />
-            {/* Search suggestions */}
-            {(searchResults.length > 0 || searchLoading) && (
-              <div className="absolute z-10 w-full mt-1 bg-base border border-border rounded-lg shadow-lg max-h-60 overflow-auto">
-                {searchLoading ? (
-                  <div className="p-3 text-center text-secondary-text text-sm">搜索中...</div>
-                ) : (
-                  searchResults.map((result) => (
-                    <button
-                      key={result.tsCode}
-                      type="button"
-                      className="w-full px-3 py-2 text-left hover:bg-surface transition-colors flex items-center justify-between"
-                      onClick={() => handleSelectSearchResult(result)}
-                    >
-                      <div>
-                        <span className="font-mono text-sm text-foreground">{result.tsCode}</span>
-                        <span className="ml-2 text-sm text-secondary-text">{result.name}</span>
-                      </div>
-                      {result.industry && (
-                        <span className="text-xs text-secondary-text">{result.industry}</span>
-                      )}
-                    </button>
-                  ))
-                )}
-              </div>
-            )}
-          </div>
-          <Input
-            label="股票名称"
-            value={newStockName}
-            onChange={(e) => setNewStockName(e.target.value)}
-            placeholder="可选，方便识别"
+        <div className="space-y-4">
+          <StockAutocomplete
+            value={newStockCode}
+            onChange={setNewStockCode}
+            onSubmit={handleAddStock}
+            placeholder="输入代码/名称/拼音搜索"
+            disabled={addingStock}
           />
           <div className="flex gap-3 pt-2">
             <button
@@ -860,22 +787,13 @@ const WatchlistPage: React.FC = () => {
               onClick={() => {
                 setAddStockDrawerOpen(false);
                 setNewStockCode('');
-                setNewStockName('');
                 setAddStockError(null);
-                setSearchResults([]);
               }}
             >
               取消
             </button>
-            <button
-              type="submit"
-              className="btn-primary flex-1"
-              disabled={addingStock}
-            >
-              {addingStock ? '添加中...' : '确认添加'}
-            </button>
           </div>
-        </form>
+        </div>
       </Drawer>
 
       {/* Edit Tags Drawer */}

@@ -395,15 +395,19 @@ class WatchlistService:
                                 return '.SH'
                             if idx_code.endswith('.SZ'):
                                 return '.SZ'
+                            if idx_code.endswith('.BJ'):
+                                return '.BJ'
                             break
             except Exception:
                 pass
 
-        # 2. 基于前缀规则推断: 6开头→上海, 0/3开头→深圳
+        # 2. 基于前缀规则推断: 6开头→上海, 0/3开头→深圳, 8/9开头→北交所
         if code_upper.startswith('6'):
             return '.SH'
         if code_upper.startswith(('0', '3')):
             return '.SZ'
+        if code_upper.startswith(('8', '9')):
+            return '.BJ'
 
         return ''
 
@@ -432,11 +436,26 @@ class WatchlistService:
                 sym = f'sz{code_upper[:-3]}'
                 symbols.append(sym)
                 tencent_to_tscode[sym] = code
+            elif code_upper.endswith('.HK'):
+                sym = f'r_hk{code_upper[:-3]}'
+                symbols.append(sym)
+                tencent_to_tscode[sym] = code
+            elif code_upper.endswith('.BJ'):
+                sym = f'bj{code_upper[:-3]}'
+                symbols.append(sym)
+                tencent_to_tscode[sym] = code
             else:
                 # 无后缀，尝试从本地索引推断交易所
                 suffix = self._infer_exchange(code_upper, stocks_index)
                 if suffix:
-                    prefix = 'sh' if suffix == '.SH' else 'sz'
+                    if suffix == '.SH':
+                        prefix = 'sh'
+                    elif suffix == '.SZ':
+                        prefix = 'sz'
+                    elif suffix == '.BJ':
+                        prefix = 'bj'
+                    else:
+                        prefix = 'sh'
                     sym = f'{prefix}{code_upper}'
                     symbols.append(sym)
                     tencent_to_tscode[sym] = code
@@ -482,6 +501,12 @@ class WatchlistService:
                             ts_code = sym[2:] + '.SH'
                         elif sym.startswith('sz'):
                             ts_code = sym[2:] + '.SZ'
+                        elif sym.startswith('r_hk'):
+                            ts_code = sym[4:] + '.HK'
+                        elif sym.startswith('hk'):
+                            ts_code = sym[2:] + '.HK'
+                        elif sym.startswith('bj'):
+                            ts_code = sym[2:] + '.BJ'
                         else:
                             ts_code = sym
 

@@ -197,7 +197,16 @@ const WatchlistDetailPage: React.FC = () => {
             <span className="text-xs text-muted-text">暂无标签，点击"编辑标签"添加</span>
           ) : (
             stockTags.map(tag => (
-              <Badge key={tag.id} variant="default" size="sm">
+              <Badge
+                key={tag.id}
+                variant="default"
+                size="sm"
+                style={{
+                  borderColor: tag.color || '#00d4ff',
+                  backgroundColor: `${tag.color || '#00d4ff'}18`,
+                  color: tag.color || '#00d4ff',
+                }}
+              >
                 {tag.name}
               </Badge>
             ))

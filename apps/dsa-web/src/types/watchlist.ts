@@ -8,6 +8,7 @@
 export interface TagInfo {
   id: number;
   name: string;
+  color?: string;
 }
 
 // ============ Group Types ============
