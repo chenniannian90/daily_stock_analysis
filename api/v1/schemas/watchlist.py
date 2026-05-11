@@ -119,6 +119,9 @@ class ItemInfo(BaseModel):
     changePct: Optional[float] = None
     totalMv: Optional[float] = None
     turnoverRate: Optional[float] = None
+    lastPrediction: Optional[str] = None
+    lastScore: Optional[int] = None
+    lastAnalysisAt: Optional[str] = None
 
     class Config:
         from_attributes = True

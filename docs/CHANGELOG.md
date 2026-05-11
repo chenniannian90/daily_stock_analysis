@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - [修复] 自选股涨跌幅颜色修正为 A 股习惯（涨红跌绿）。
 - [改进] 自选股标签支持自定义颜色，API 和前端标签 badge 均展示标签颜色。
 - [改进] 自选股添加股票改用 StockAutocomplete 组件，统一搜索交互。
+- [改进] 自选股列表展示最近分析结果（预测方向+评分），分析完成后自动回写到自选股表。
 
 ## [3.15.0] - 2026-05-05
 

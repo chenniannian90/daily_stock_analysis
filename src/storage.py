@@ -582,6 +582,9 @@ class WatchlistItem(Base):
     group_id = Column(Integer, nullable=False, default=0, index=True)
     ts_code = Column(String(10), nullable=False, index=True)
     sort_num = Column(Integer, nullable=False, default=0)
+    last_prediction = Column(String(50))
+    last_score = Column(Integer)
+    last_analysis_at = Column(DateTime)
     created_at = Column(DateTime, default=datetime.now)
 
     __table_args__ = (
@@ -601,6 +604,9 @@ class WatchlistItem(Base):
             'group_id': self.group_id,
             'ts_code': self.ts_code,
             'sort_num': self.sort_num,
+            'last_prediction': self.last_prediction,
+            'last_score': self.last_score,
+            'last_analysis_at': self.last_analysis_at.isoformat() if self.last_analysis_at else None,
             'created_at': self.created_at.isoformat() if self.created_at else None,
         }
 
@@ -836,12 +842,45 @@ class DatabaseManager:
         # 创建所有表
         Base.metadata.create_all(self._engine)
 
+        # 数据库迁移：为 watchlist_items 表添加分析结果列（兼容旧表）
+        self._migrate_watchlist_columns()
+
         self._initialized = True
         logger.info(f"数据库初始化完成: {db_url}")
 
         # 注册退出钩子，确保程序退出时关闭数据库连接
         atexit.register(DatabaseManager._cleanup_engine, self._engine)
-    
+
+    def _migrate_watchlist_columns(self) -> None:
+        """为 watchlist_items 表添加分析结果列（兼容旧表，幂等）。"""
+        from sqlalchemy import text as _text
+        new_cols = [
+            ('last_prediction', 'VARCHAR(50)'),
+            ('last_score', 'INTEGER'),
+            ('last_analysis_at', 'DATETIME'),
+        ]
+        try:
+            if self._is_sqlite_engine:
+                with self._engine.connect() as conn:
+                    existing = {row[1] for row in conn.execute(
+                        _text("PRAGMA table_info(watchlist_items)")
+                    ).fetchall()}
+                    for col_name, col_type in new_cols:
+                        if col_name not in existing:
+                            conn.execute(_text(
+                                f"ALTER TABLE watchlist_items ADD COLUMN {col_name} {col_type}"
+                            ))
+                    conn.commit()
+            else:
+                with self._engine.connect() as conn:
+                    for col_name, col_type in new_cols:
+                        conn.execute(_text(
+                            f"ALTER TABLE watchlist_items ADD COLUMN IF NOT EXISTS {col_name} {col_type}"
+                        ))
+                    conn.commit()
+        except Exception as e:
+            logger.warning(f"watchlist_items migration skipped: {e}")
+
     @classmethod
     def get_instance(cls) -> 'DatabaseManager':
         """获取单例实例"""

@@ -32,6 +32,9 @@ export interface ItemInfo {
   changePct?: number;
   totalMv?: number;
   turnoverRate?: number;
+  lastPrediction?: string;
+  lastScore?: number;
+  lastAnalysisAt?: string;
 }
 
 // ============ Response Types ============

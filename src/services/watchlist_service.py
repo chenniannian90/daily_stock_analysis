@@ -132,6 +132,7 @@ class WatchlistService:
         name_map = self._fetch_stock_names(ts_codes)
         quote_map = self._fetch_quotes(ts_codes)
         tag_map = self.repo.get_all_stock_tags(ts_codes)
+        analysis_map = self._fetch_latest_analysis(ts_codes)
 
         # 构建返回数据
         result_items = []
@@ -149,6 +150,20 @@ class WatchlistService:
                 info['changePct'] = quote.get('changePct')
                 info['totalMv'] = quote.get('totalMv')
                 info['turnoverRate'] = quote.get('turnoverRate')
+
+            # 分析结果：优先 watchlist_items 列（push 路径），兜底查 analysis_history
+            if getattr(item, 'last_prediction', None):
+                info['lastPrediction'] = item.last_prediction
+                info['lastScore'] = item.last_score
+                info['lastAnalysisAt'] = (
+                    item.last_analysis_at.isoformat()
+                    if item.last_analysis_at else None
+                )
+            elif item.ts_code in analysis_map:
+                a = analysis_map[item.ts_code]
+                info['lastPrediction'] = a.get('prediction')
+                info['lastScore'] = a.get('score')
+                info['lastAnalysisAt'] = a.get('analysisAt')
 
             result_items.append(info)
 
@@ -543,4 +558,53 @@ class WatchlistService:
                 except Exception:
                     pass
 
+        return result
+
+    @staticmethod
+    def _fetch_latest_analysis(ts_codes: List[str]) -> Dict[str, Dict[str, Any]]:
+        """批量查询最新分析结果（Pull 路径，兜底用）。"""
+        if not ts_codes:
+            return {}
+        result: Dict[str, Dict[str, Any]] = {}
+        try:
+            from sqlalchemy import text
+            from src.storage import DatabaseManager
+            from src.services.stock_code_utils import normalize_code
+
+            db = DatabaseManager.get_instance()
+            norm_to_code: Dict[str, str] = {}
+            query_norms: set = set()
+            for tc in ts_codes:
+                norm = normalize_code(tc)
+                if norm:
+                    query_norms.add(norm)
+                    norm_to_code.setdefault(norm, tc)
+                query_norms.add(tc)
+                norm_to_code.setdefault(tc, tc)
+
+            placeholders = ','.join(f"'{c}'" for c in query_norms)
+            with db.get_session() as session:
+                rows = session.execute(text(f"""
+                    SELECT code, trend_prediction, sentiment_score, created_at
+                    FROM analysis_history
+                    WHERE code IN ({placeholders})
+                    AND id IN (
+                        SELECT MAX(id) FROM analysis_history
+                        WHERE code IN ({placeholders})
+                        GROUP BY code
+                    )
+                """)).fetchall()
+
+            for row in rows:
+                ah_code, prediction, score, created_at = row
+                norm_ah = normalize_code(ah_code) or ah_code
+                target_code = norm_to_code.get(norm_ah) or norm_to_code.get(ah_code)
+                if target_code and target_code not in result:
+                    result[target_code] = {
+                        'prediction': prediction,
+                        'score': score,
+                        'analysisAt': created_at.isoformat() if created_at else None,
+                    }
+        except Exception as e:
+            logger.debug(f"批量查询最新分析失败: {e}")
         return result

@@ -38,6 +38,33 @@ const formatMarketValue = (mv: number | undefined): string => {
   return `${yi.toFixed(2)}亿`;
 };
 
+// Determine badge variant based on analysis prediction and score
+const getAnalysisBadge = (
+  prediction?: string,
+  score?: number
+): { variant: 'success' | 'danger' | 'warning' | 'info' | 'default'; label: string } | null => {
+  if (!prediction && score === undefined) return null;
+  const label = prediction && score !== undefined
+    ? `${prediction} ${score}`
+    : (prediction || `${score}`);
+  const p = (prediction || '').toLowerCase();
+  if (p.includes('强烈看多') || p.includes('看多') || p.includes('买入') || p.includes('强烈买入')) {
+    return { variant: 'danger', label };
+  }
+  if (p.includes('看空') || p.includes('强烈看空') || p.includes('卖出') || p.includes('强烈卖出')) {
+    return { variant: 'success', label };
+  }
+  if (p.includes('持有') || p.includes('观望') || p.includes('震荡')) {
+    return { variant: 'info', label };
+  }
+  if (score !== undefined) {
+    if (score >= 60) return { variant: 'danger', label };
+    if (score >= 40) return { variant: 'info', label };
+    return { variant: 'success', label };
+  }
+  return { variant: 'default', label };
+};
+
 const WatchlistPage: React.FC = () => {
   const navigate = useNavigate();
 
@@ -654,6 +681,18 @@ const WatchlistPage: React.FC = () => {
                           <span>换手: {formatNumber(item.turnoverRate)}%</span>
                         ) : null}
                       </div>
+
+                      {/* Analysis result badge */}
+                      {(() => {
+                        const badge = getAnalysisBadge(item.lastPrediction, item.lastScore);
+                        return badge ? (
+                          <div className="mt-1.5">
+                            <Badge variant={badge.variant} size="sm">
+                              {badge.label}
+                            </Badge>
+                          </div>
+                        ) : null;
+                      })()}
 
                       {/* Tags */}
                       <div className="mt-2 flex flex-wrap gap-1">
