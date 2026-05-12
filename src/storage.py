@@ -571,6 +571,156 @@ class PortfolioDailySnapshot(Base):
     )
 
 
+class WatchlistItem(Base):
+    """自选股条目（一股可多分组）"""
+
+    __tablename__ = 'watchlist_items'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(String(64), nullable=False, default='default', index=True)
+    watch_type = Column(String(16), nullable=False, default='stock')
+    group_id = Column(Integer, nullable=False, default=0, index=True)
+    ts_code = Column(String(10), nullable=False, index=True)
+    sort_num = Column(Integer, nullable=False, default=0)
+    last_prediction = Column(String(50))
+    last_score = Column(Integer)
+    last_analysis_at = Column(DateTime)
+    created_at = Column(DateTime, default=datetime.now)
+
+    __table_args__ = (
+        UniqueConstraint('user_id', 'group_id', 'ts_code', name='uix_user_group_tscode'),
+        Index('ix_watchlist_user_type', 'user_id', 'watch_type'),
+    )
+
+    def __repr__(self):
+        return f"<WatchlistItem(user={self.user_id}, code={self.ts_code}, group={self.group_id})>"
+
+    def to_dict(self) -> Dict[str, Any]:
+        """转换为字典"""
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'watch_type': self.watch_type,
+            'group_id': self.group_id,
+            'ts_code': self.ts_code,
+            'sort_num': self.sort_num,
+            'last_prediction': self.last_prediction,
+            'last_score': self.last_score,
+            'last_analysis_at': self.last_analysis_at.isoformat() if self.last_analysis_at else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class WatchlistGroupNew(Base):
+    """自选股分组"""
+
+    __tablename__ = 'watchlist_groups_new'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(String(64), nullable=False, default='default', index=True)
+    name = Column(String(32), nullable=False)
+    created_at = Column(DateTime, default=datetime.now)
+
+    __table_args__ = (
+        UniqueConstraint('user_id', 'name', name='uix_user_group_name'),
+    )
+
+    def __repr__(self):
+        return f"<WatchlistGroupNew(user={self.user_id}, name={self.name})>"
+
+    def to_dict(self) -> Dict[str, Any]:
+        """转换为字典"""
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'name': self.name,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class WatchlistSort(Base):
+    """排序存储"""
+
+    __tablename__ = 'watchlist_sorts'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(String(64), nullable=False, index=True)
+    sort_type = Column(String(32), nullable=False)
+    sort_content = Column(Text)  # JSON 数组
+
+    __table_args__ = (
+        UniqueConstraint('user_id', 'sort_type', name='uix_user_sort_type'),
+    )
+
+    def __repr__(self):
+        return f"<WatchlistSort(user={self.user_id}, type={self.sort_type})>"
+
+    def to_dict(self) -> Dict[str, Any]:
+        """转换为字典"""
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'sort_type': self.sort_type,
+            'sort_content': self.sort_content,
+        }
+
+
+class UserTag(Base):
+    """用户标签"""
+
+    __tablename__ = 'user_tags'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(String(64), nullable=False, default='default', index=True)
+    name = Column(String(32), nullable=False)
+    color = Column(String(7), nullable=False, default='#00d4ff')
+    created_at = Column(DateTime, default=datetime.now)
+
+    __table_args__ = (
+        UniqueConstraint('user_id', 'name', name='uix_user_tag_name'),
+    )
+
+    def __repr__(self):
+        return f"<UserTag(user={self.user_id}, name={self.name})>"
+
+    def to_dict(self) -> Dict[str, Any]:
+        """转换为字典"""
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'name': self.name,
+            'color': self.color,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class StockUserTag(Base):
+    """股票-标签关联"""
+
+    __tablename__ = 'stock_user_tags'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(String(64), nullable=False, index=True)
+    ts_code = Column(String(10), nullable=False, index=True)
+    tag_id = Column(Integer, ForeignKey('user_tags.id', ondelete='CASCADE'), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint('user_id', 'ts_code', 'tag_id', name='uix_user_code_tag'),
+    )
+
+    def __repr__(self):
+        return f"<StockUserTag(user={self.user_id}, code={self.ts_code}, tag={self.tag_id})>"
+
+    def to_dict(self) -> Dict[str, Any]:
+        """转换为字典"""
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'ts_code': self.ts_code,
+            'tag_id': self.tag_id,
+        }
+
+
 class PortfolioFxRate(Base):
     """Cached FX rates used for cross-currency portfolio conversion."""
 
@@ -692,12 +842,45 @@ class DatabaseManager:
         # 创建所有表
         Base.metadata.create_all(self._engine)
 
+        # 数据库迁移：为 watchlist_items 表添加分析结果列（兼容旧表）
+        self._migrate_watchlist_columns()
+
         self._initialized = True
         logger.info(f"数据库初始化完成: {db_url}")
 
         # 注册退出钩子，确保程序退出时关闭数据库连接
         atexit.register(DatabaseManager._cleanup_engine, self._engine)
-    
+
+    def _migrate_watchlist_columns(self) -> None:
+        """为 watchlist_items 表添加分析结果列（兼容旧表，幂等）。"""
+        from sqlalchemy import text as _text
+        new_cols = [
+            ('last_prediction', 'VARCHAR(50)'),
+            ('last_score', 'INTEGER'),
+            ('last_analysis_at', 'DATETIME'),
+        ]
+        try:
+            if self._is_sqlite_engine:
+                with self._engine.connect() as conn:
+                    existing = {row[1] for row in conn.execute(
+                        _text("PRAGMA table_info(watchlist_items)")
+                    ).fetchall()}
+                    for col_name, col_type in new_cols:
+                        if col_name not in existing:
+                            conn.execute(_text(
+                                f"ALTER TABLE watchlist_items ADD COLUMN {col_name} {col_type}"
+                            ))
+                    conn.commit()
+            else:
+                with self._engine.connect() as conn:
+                    for col_name, col_type in new_cols:
+                        conn.execute(_text(
+                            f"ALTER TABLE watchlist_items ADD COLUMN IF NOT EXISTS {col_name} {col_type}"
+                        ))
+                    conn.commit()
+        except Exception as e:
+            logger.warning(f"watchlist_items migration skipped: {e}")
+
     @classmethod
     def get_instance(cls) -> 'DatabaseManager':
         """获取单例实例"""

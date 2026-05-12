@@ -62,6 +62,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - fix: Avoid unsupported built-in historical providers for Hong Kong daily data; align Beijing Stock Exchange `BJ` prefix and `.BJ` suffix validation.
 - fix: Improve Web market-review observability, Windows fallback lock probing, and market catalyst snippet rendering.
 - docs: Add the documentation index and settings-help maintenance guide; remove temporary PR/doc-sync notes from README and user-facing guides.
+- [新功能] 自选股升级：支持一股多分组、行情数据展示、股票搜索、条目移动与排序。
+- [新功能] 自选股 API 重构：新增 `/watchlist/group/*` 和 `/watchlist/item/*` 接口，支持分组排序和条目置顶/置底。
+- [改进] 自选股列表展示实时行情（收盘价、涨跌幅、市值、换手率）。
+- [chore] 新增 `scripts/migrate_watchlist.py` 数据迁移脚本，支持旧表数据迁移到新多分组结构。
+- [改进] Docker 镜像支持非 root 用户 (`dsa`, UID 1000) 执行，并增强 `Dockerfile` 安全性与构建稳健性。
+- [改进] 放宽 LiteLLM 依赖约束，保留 `>=1.80.10` 最低版本并显式排除 PyPI 事故版本 `1.82.7` / `1.82.8`，允许安装后续 1.x 修复版本。
+- [改进] 补齐通知渠道 P0 基线、Actions 映射与 `--check-notify` 只读诊断，完善 AstrBot 配置入口和通知回归快照。
+- [修复] 修正 LLM 渠道测试中 `Model disabled` 被误报为网络异常的问题，并在失败提示中展示本次实际测试模型。
+- [修复] 修正 LLM 渠道测试中 `Your request was blocked` 等服务商或网关拦截错误被误报为网络异常的问题。
+- [chore] 清理仓库根目录：移除误入库的 `.codex`、`review.md` 跟踪记录，将 smoke 测试入口迁移到 `scripts/`、环境检查脚本迁移为 `scripts/check_env.py`，并将 LiteLLM YAML 示例迁移到 `docs/examples/`。
+- [新功能] Web 设置页新增通知渠道一键测试，支持临时配置、耗时与脱敏 attempts 展示。
+- [新功能] 系统设置页新增配置项帮助入口与多语言帮助文案基础设施，首批覆盖自选股、LLM 主模型、LLM 渠道、飞书 Webhook 与 WebUI 监听地址。
+- [改进] 设置项帮助窗口支持键盘焦点限制、Esc 关闭和关闭后焦点恢复，并移除短描述重复 hover tooltip。
+- [文档] 新增设置页配置帮助维护说明，明确帮助元数据字段、首批覆盖范围、事实源和多语言文案同步规则。
+- [测试] 补充设置项帮助元数据、API schema、前端弹窗交互测试，并修复 Bot 名称路由与调度时间 provider 测试的离线 CI 稳定性问题。
+- [修复] 自选股行情支持港股 (.HK) 和北交所 (.BJ) 腾讯行情 API 取数，修复港股无价格展示问题。
+- [修复] 自选股涨跌幅颜色修正为 A 股习惯（涨红跌绿）。
+- [改进] 自选股标签支持自定义颜色，API 和前端标签 badge 均展示标签颜色。
+- [改进] 自选股添加股票改用 StockAutocomplete 组件，统一搜索交互。
+- [改进] 自选股列表展示最近分析结果（预测方向+评分），分析完成后自动回写到自选股表。
 
 ## [3.15.0] - 2026-05-05
 

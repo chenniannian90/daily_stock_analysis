@@ -1659,6 +1659,9 @@ class StockAnalysisPipeline:
                     f"[{code}] 分析完成: {result.operation_advice}, "
                     f"评分 {result.sentiment_score}"
                 )
+                self._update_watchlist_analysis(
+                    code, result.trend_prediction, result.sentiment_score
+                )
                 
                 # 单股推送模式（#55）：每分析完一只股票立即推送
                 if single_stock_notify:
@@ -1681,6 +1684,45 @@ class StockAnalysisPipeline:
         finally:
             reset_frozen_target_date(token)
     
+    def _update_watchlist_analysis(
+        self, code: str, prediction: str, score: int
+    ) -> None:
+        """将分析结果回写到 watchlist_items 表（Push 路径）。"""
+        try:
+            from datetime import datetime as _dt
+            from sqlalchemy import select as _select
+            from src.storage import DatabaseManager, WatchlistItem
+            from src.services.stock_code_utils import normalize_code
+
+            db = DatabaseManager.get_instance()
+            norm_input = normalize_code(code)
+            with db.get_session() as session:
+                items = session.execute(
+                    _select(WatchlistItem).where(WatchlistItem.ts_code == code)
+                ).scalars().all()
+
+                if not items and norm_input:
+                    all_items = session.execute(
+                        _select(WatchlistItem)
+                    ).scalars().all()
+                    items = [
+                        it for it in all_items
+                        if normalize_code(it.ts_code) == norm_input
+                    ]
+
+                for item in items:
+                    item.last_prediction = prediction
+                    item.last_score = score
+                    item.last_analysis_at = _dt.now()
+
+                session.commit()
+                if items:
+                    logger.debug(
+                        f"Updated watchlist analysis for {code} ({len(items)} rows)"
+                    )
+        except Exception as e:
+            logger.warning(f"Failed to update watchlist for {code}: {e}")
+
     def run(
         self,
         stock_codes: Optional[List[str]] = None,

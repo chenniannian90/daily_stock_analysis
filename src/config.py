@@ -849,6 +849,11 @@ class Config:
     # 交易日检查：默认启用，非交易日跳过执行；设为 false 或 --force-run 可强制执行（Issue #373）
     trading_day_check_enabled: bool = True
 
+    # === 自选股定时分析 ===
+    watchlist_schedule_enabled: bool = True
+    watchlist_morning_time: str = "11:30"
+    watchlist_evening_time: str = "19:00"
+
     # === 实时行情增强数据配置 ===
     # 实时行情开关（关闭后使用历史收盘价进行分析）
     enable_realtime_quote: bool = True
@@ -987,6 +992,19 @@ class Config:
                 self.agent_skill_routing, self._VALID_SKILL_ROUTING,
             )
             object.__setattr__(self, "agent_skill_routing", "auto")
+
+    # === 自选股定时分析属性 ===
+    @property
+    def WATCHLIST_SCHEDULE_ENABLED(self) -> bool:
+        return self.watchlist_schedule_enabled
+
+    @property
+    def WATCHLIST_MORNING_TIME(self) -> str:
+        return self.watchlist_morning_time
+
+    @property
+    def WATCHLIST_EVENING_TIME(self) -> str:
+        return self.watchlist_evening_time
 
     # 单例实例存储
     _instance: Optional['Config'] = None
@@ -1596,6 +1614,10 @@ class Config:
                 os.getenv('MARKET_REVIEW_REGION', 'cn')
             ),
             trading_day_check_enabled=os.getenv('TRADING_DAY_CHECK_ENABLED', 'true').lower() != 'false',
+            # 自选股定时分析
+            watchlist_schedule_enabled=os.getenv('WATCHLIST_SCHEDULE_ENABLED', 'true').lower() == 'true',
+            watchlist_morning_time=os.getenv('WATCHLIST_MORNING_TIME', '11:30').strip() or '11:30',
+            watchlist_evening_time=os.getenv('WATCHLIST_EVENING_TIME', '19:00').strip() or '19:00',
             webui_enabled=os.getenv('WEBUI_ENABLED', 'false').lower() == 'true',
             webui_host=os.getenv('WEBUI_HOST', '127.0.0.1'),
             webui_port=parse_env_int(os.getenv('WEBUI_PORT'), 8000, field_name='WEBUI_PORT', minimum=1, maximum=65535),
