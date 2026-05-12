@@ -2387,6 +2387,15 @@ class SearchService:
         with self._cache_lock:
             return self._get_cached_locked(key)
 
+    def clear_cache(self) -> None:
+        """清除内存中的搜索缓存，释放内存（部署低内存环境常用）。"""
+        with self._cache_lock:
+            count = len(self._cache)
+            self._cache.clear()
+            self._cache_inflight.clear()
+        if count > 0:
+            logger.debug("已清除 %d 条搜索缓存，释放内存", count)
+
     def _get_cached_or_reserve(
         self,
         key: str,

@@ -11,6 +11,7 @@ A股自选股智能分析系统 - 核心分析流水线
 4. 提供股票分析的核心功能
 """
 
+import gc
 import logging
 import threading
 import time
@@ -1846,7 +1847,15 @@ class StockAnalysisPipeline:
 
                 except Exception as e:
                     logger.error(f"[{code}] 任务执行失败: {e}")
-        
+                finally:
+                    # 每只股票分析完成后强制回收内存
+                    gc.collect()
+
+        # 分析完成后清理搜索缓存和行情缓存，释放内存在服务端部署场景下很关键
+        if self.search_service is not None and hasattr(self.search_service, 'clear_cache'):
+            self.search_service.clear_cache()
+        self.fetcher_manager.clear_realtime_cache()
+
         # 统计
         elapsed_time = time.time() - start_time
         

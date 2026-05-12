@@ -1259,7 +1259,22 @@ class DataFetcherManager:
         except Exception as e:
             logger.error(f"[预取] 批量预取异常: {e}")
             return 0
-    
+
+    def clear_realtime_cache(self) -> None:
+        """清除 efinance 全市场实时行情缓存，释放内存。"""
+        try:
+            from data_provider.efinance_fetcher import _realtime_cache, _etf_realtime_cache
+            cleared = 0
+            for cache_ref in (_realtime_cache, _etf_realtime_cache):
+                if isinstance(cache_ref, dict) and cache_ref.get('data') is not None:
+                    cache_ref['data'] = None
+                    cache_ref['timestamp'] = 0.0
+                    cleared += 1
+            if cleared:
+                logger.info("已清除 %d 个 efinance 实时行情缓存，释放内存", cleared)
+        except Exception:
+            pass
+
     def get_realtime_quote(self, stock_code: str, *, log_final_failure: bool = True):
         """
         获取实时行情数据（自动故障切换）
