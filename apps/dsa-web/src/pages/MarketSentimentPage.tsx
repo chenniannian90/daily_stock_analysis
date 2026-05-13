@@ -102,10 +102,6 @@ const MarketSentimentPage: React.FC = () => {
       const entry = map.get(s.time)!;
       entry[`${day}_up`] = s.upCount;
       entry[`${day}_down`] = s.downCount;
-      entry[`${day}_upMedian`] = s.upMedianPct;
-      entry[`${day}_downMedian`] = s.downMedianPct;
-      entry[`${day}_upAvg`] = s.upAvgPct;
-      entry[`${day}_downAvg`] = s.downAvgPct;
       entry[`${day}_limitUp`] = s.limitUpCount;
       entry[`${day}_limitDown`] = s.limitDownCount;
       entry[`${day}_amount`] = s.totalAmount;
@@ -125,10 +121,6 @@ const MarketSentimentPage: React.FC = () => {
       limitUpCount: s.limitUpCount,
       limitDownCount: s.limitDownCount,
       totalAmount: s.totalAmount,
-      upMedianPct: s.upMedianPct,
-      downMedianPct: s.downMedianPct,
-      upAvgPct: s.upAvgPct,
-      downAvgPct: s.downAvgPct,
       allMedianPct: s.allMedianPct,
       allAvgPct: s.allAvgPct,
     }));
