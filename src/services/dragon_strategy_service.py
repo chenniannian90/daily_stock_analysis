@@ -482,6 +482,9 @@ def identify_dragon_stocks(sector_count: int = 5) -> Dict:
     # 连板龙头排行 (复用已拉取的涨停板池)
     leaders = [s for s in limit_up_pool if s["consecutive_board"] >= 2]
     leaders.sort(key=lambda x: (-x["consecutive_board"], -x["change_pct"]))
+    # 补充概念名称
+    for s in leaders:
+        s["concept_name"] = code_concept_map.get(s["stock_code"], "")
     consecutive_leaders = leaders
 
     # 分歧转一致候选 (复用已拉取的涨停板池)

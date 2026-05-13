@@ -10,6 +10,7 @@ import { AppPage } from '../components/common/AppPage';
 import { ApiErrorAlert } from '../components/common/ApiErrorAlert';
 import { Card } from '../components/common/Card';
 import { PageHeader } from '../components/common/PageHeader';
+import { Tooltip } from '../components/common/Tooltip';
 import { cn } from '../utils/cn';
 
 const SCORE_COLOR = (score?: number) => {
@@ -97,7 +98,9 @@ const DragonTable: React.FC<{ dragons: DragonStock[]; highlight?: boolean }> = (
                 </span>
               </td>
               <td className="py-2 text-xs text-muted-foreground max-w-[260px] truncate">
-                {d.dragonReason}
+                <Tooltip content={<span className="whitespace-pre-wrap">{d.dragonReason}</span>}>
+                  {d.dragonReason}
+                </Tooltip>
               </td>
             </tr>
           ))}
@@ -346,6 +349,7 @@ const DragonStrategyPage: React.FC = () => {
                     <tr className="border-b border-white/10 text-xs text-muted-foreground">
                       <th className="text-left py-2 pr-2 font-medium">股票</th>
                       <th className="text-left py-2 pr-2 font-medium">板块</th>
+                      <th className="text-left py-2 pr-2 font-medium">概念</th>
                       <th className="text-center py-2 pr-2 font-medium">连板</th>
                       <th className="text-right py-2 pr-2 font-medium">涨幅</th>
                       <th className="text-right py-2 pr-2 font-medium">换手</th>
@@ -362,6 +366,7 @@ const DragonStrategyPage: React.FC = () => {
                           <span className="text-xs text-muted-foreground ml-1">{d.stockCode}</span>
                         </td>
                         <td className="py-2 pr-2 text-muted-foreground">{d.boardName || '-'}</td>
+                        <td className="py-2 pr-2 text-xs text-muted-foreground max-w-[100px] truncate">{d.conceptName || '-'}</td>
                         <td className="py-2 pr-2 text-center">
                           <span className="text-amber-400 font-bold">{d.consecutiveBoard}</span>
                         </td>
