@@ -154,8 +154,8 @@ const IndexBar: React.FC<IndexBarProps> = ({ indices: idxData }) => {
   return (
     <div className="flex flex-wrap gap-3 text-xs">
       {items.map(([code, info]: [string, unknown]) => {
-        const d = info as { name?: string; pct?: number; price?: number };
-        const pct = d.pct ?? 0;
+        const d = info as { name?: string; pct?: number; changePct?: number; price?: number };
+        const pct = d.pct ?? d.changePct ?? 0;
         return (
           <span key={code} className="inline-flex items-center gap-1">
             <span className="text-muted-foreground">{d.name || code}</span>
