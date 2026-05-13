@@ -213,8 +213,9 @@ def _fetch_limit_up_pool(trade_date: Optional[str] = None) -> List[Dict]:
                 "last_seal_time": str(row.get("最后封板时间", "")),
                 "break_count": int(row.get("炸板次数", 0)),
                 "consecutive_board": int(row.get("连板数", 0)),
-                "sector_name": str(row.get("所属行业", "")),
+                "board_name": str(row.get("所属行业", "")),
                 "limit_stat": str(row.get("涨停统计", "")),
+                "float_market_cap": float(row.get("流通市值", 0)),
             })
         return items
     except Exception as e:
@@ -393,6 +394,13 @@ def identify_dragon_stocks(sector_count: int = 5) -> Dict:
 
         return min(100, int(score)), passed, passed4, level1, level2, level3, level4
 
+    # 构建 股票代码→概念名 映射（供概念标签展示用）
+    code_concept_map: Dict[str, str] = {}
+    for s in sectors.get("concept", []):
+        sc = s.get("rep_stock_code", "")
+        if sc:
+            code_concept_map[sc] = s["name"]
+
     for sector_type, sector_list in [("industry", sectors.get("industry", [])),
                                       ("concept", sectors.get("concept", []))]:
         for rank, sector in enumerate(sector_list, 1):
@@ -443,6 +451,7 @@ def identify_dragon_stocks(sector_count: int = 5) -> Dict:
                 "stock_name": name,
                 "board_name": sector["name"],
                 "board_type": sector_type,
+                "concept_name": code_concept_map.get(code, ""),
                 "board_rank": rank,
                 "board_pct": round(board_pct, 2),
                 "stock_pct": round(stock_pct, 2),
@@ -452,6 +461,7 @@ def identify_dragon_stocks(sector_count: int = 5) -> Dict:
                 "break_count": break_count,
                 "seal_amount": seal_amount,
                 "turnover": turnover,
+                "float_market_cap": lu.get("float_market_cap", 0),
                 "levels_passed_3": passed3,
                 "levels_passed_4": passed4,
                 "dragon_score": score,
@@ -484,8 +494,10 @@ def identify_dragon_stocks(sector_count: int = 5) -> Dict:
     # 交叉分析：涨停板池中属于领涨板块的连板龙头
     # 板块名模糊匹配——涨停板池用简称("电力")，新浪用全称("电力、热力生产和供应业")
     top_board_names = set()
+    sector_pct_map = {}  # 板块名 → 涨跌幅
     for s in sectors.get("industry", []) + sectors.get("concept", []):
         top_board_names.add(s["name"])
+        sector_pct_map[s["name"]] = s["change_pct"]
 
     cross_dragons = []
     for lu in limit_up_pool:
@@ -495,19 +507,25 @@ def identify_dragon_stocks(sector_count: int = 5) -> Dict:
             continue
 
         # 模糊匹配：涨停板的"所属行业"在任一领涨板块全称中出现
-        lu_sector = lu["sector_name"]
-        matched = any(lu_sector in board_name or board_name in lu_sector
-                      for board_name in top_board_names)
-        if not matched:
+        lu_board = lu["board_name"]
+        matched_board_name = None
+        matched_board_pct = 0.0
+        for board_name in top_board_names:
+            if lu_board in board_name or board_name in lu_board:
+                matched_board_name = board_name
+                matched_board_pct = sector_pct_map.get(board_name, 0.0)
+                break
+        if not matched_board_name:
             continue
 
         cross_dragons.append({
             "stock_code": lu["stock_code"],
             "stock_name": lu["stock_name"],
-            "board_name": lu["sector_name"],
+            "board_name": lu["board_name"],
             "board_type": "涨停板交叉",
+            "concept_name": code_concept_map.get(lu["stock_code"], ""),
             "board_rank": 0,
-            "board_pct": 0.0,
+            "board_pct": round(matched_board_pct, 2),
             "stock_pct": lu["change_pct"],
             "stock_vs_board_alpha": 0.0,
             "board_vs_index_alpha": 0.0,
@@ -515,6 +533,7 @@ def identify_dragon_stocks(sector_count: int = 5) -> Dict:
             "break_count": lu["break_count"],
             "seal_amount": lu["seal_amount"],
             "turnover": lu["turnover"],
+            "float_market_cap": lu.get("float_market_cap", 0),
             "levels_passed_3": 0,
             "levels_passed_4": 0,
             "dragon_score": min(100, 40 + lu["consecutive_board"] * 12),

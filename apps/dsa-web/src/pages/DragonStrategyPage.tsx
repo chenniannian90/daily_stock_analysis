@@ -13,15 +13,17 @@ import { PageHeader } from '../components/common/PageHeader';
 import { cn } from '../utils/cn';
 
 const SCORE_COLOR = (score?: number) => {
+  // A股配色：高分红色（强势），低分绿色（弱势）
   if (score == null) return 'text-muted-foreground';
-  if (score >= 70) return 'text-emerald-400';
+  if (score >= 70) return 'text-red-400';
   if (score >= 50) return 'text-amber-400';
-  return 'text-red-400';
+  return 'text-emerald-400';
 };
 
 const PCT_COLOR = (pct: number) => {
-  if (pct > 0) return 'text-emerald-400';
-  if (pct < 0) return 'text-red-400';
+  // A股配色：涨红跌绿
+  if (pct > 0) return 'text-red-400';
+  if (pct < 0) return 'text-emerald-400';
   return 'text-muted-foreground';
 };
 
@@ -49,6 +51,7 @@ const DragonTable: React.FC<{ dragons: DragonStock[]; highlight?: boolean }> = (
           <tr className="border-b border-white/10 text-xs text-muted-foreground">
             <th className="text-left py-2 pr-2 font-medium">股票</th>
             <th className="text-left py-2 pr-2 font-medium">板块</th>
+            <th className="text-left py-2 pr-2 font-medium">概念</th>
             <th className="text-right py-2 pr-2 font-medium">板块%</th>
             <th className="text-right py-2 pr-2 font-medium">个股%</th>
             <th className="text-center py-2 pr-2 font-medium">连板</th>
@@ -70,6 +73,7 @@ const DragonTable: React.FC<{ dragons: DragonStock[]; highlight?: boolean }> = (
                 <span className="text-xs text-muted-foreground ml-1">{d.stockCode}</span>
               </td>
               <td className="py-2 pr-2 text-muted-foreground max-w-[120px] truncate">{d.boardName}</td>
+              <td className="py-2 pr-2 text-xs text-muted-foreground max-w-[100px] truncate">{d.conceptName || '-'}</td>
               <td className={cn('py-2 pr-2 text-right', PCT_COLOR(d.boardPct))}>
                 {d.boardPct > 0 ? '+' : ''}{d.boardPct?.toFixed(1)}%
               </td>
@@ -346,6 +350,7 @@ const DragonStrategyPage: React.FC = () => {
                       <th className="text-right py-2 pr-2 font-medium">涨幅</th>
                       <th className="text-right py-2 pr-2 font-medium">换手</th>
                       <th className="text-right py-2 pr-2 font-medium">封板资金(亿)</th>
+                      <th className="text-right py-2 pr-2 font-medium">流通市值(亿)</th>
                       <th className="text-center py-2 font-medium">炸板次数</th>
                     </tr>
                   </thead>
@@ -356,7 +361,7 @@ const DragonStrategyPage: React.FC = () => {
                           <span className="font-medium">{d.stockName}</span>
                           <span className="text-xs text-muted-foreground ml-1">{d.stockCode}</span>
                         </td>
-                        <td className="py-2 pr-2 text-muted-foreground">{d.boardName}</td>
+                        <td className="py-2 pr-2 text-muted-foreground">{d.boardName || '-'}</td>
                         <td className="py-2 pr-2 text-center">
                           <span className="text-amber-400 font-bold">{d.consecutiveBoard}</span>
                         </td>
@@ -368,6 +373,9 @@ const DragonStrategyPage: React.FC = () => {
                         </td>
                         <td className="py-2 pr-2 text-right text-muted-foreground">
                           {(d.sealAmount / 1e8)?.toFixed(1)}
+                        </td>
+                        <td className="py-2 pr-2 text-right text-muted-foreground">
+                          {d.floatMarketCap != null ? (d.floatMarketCap / 1e8).toFixed(1) : '-'}
                         </td>
                         <td className="py-2 text-center">
                           {d.breakCount > 0 ? (

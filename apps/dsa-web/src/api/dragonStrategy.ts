@@ -6,6 +6,7 @@ export interface DragonStock {
   stockName: string;
   boardName: string;
   boardType: string;
+  conceptName?: string;
   boardRank: number;
   boardPct: number;
   stockPct: number;
@@ -15,6 +16,7 @@ export interface DragonStock {
   breakCount: number;
   sealAmount: number;
   turnover: number;
+  floatMarketCap?: number;
   levelsPassed3: number;
   levelsPassed4: number;
   dragonScore: number;
