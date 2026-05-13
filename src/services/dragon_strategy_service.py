@@ -394,12 +394,12 @@ def identify_dragon_stocks(sector_count: int = 5) -> Dict:
 
         return min(100, int(score)), passed, passed4, level1, level2, level3, level4
 
-    # 构建 股票代码→概念名 映射（供概念标签展示用）
+    # 构建 股票代码→概念名 映射（从本地 DB 查询，取最新5个概念）
     code_concept_map: Dict[str, str] = {}
-    for s in sectors.get("concept", []):
-        sc = s.get("rep_stock_code", "")
-        if sc:
-            code_concept_map[sc] = s["name"]
+    try:
+        from src.services.concept_service import get_concept_map_for_stocks
+    except ImportError:
+        get_concept_map_for_stocks = None  # type: ignore[assignment]
 
     for sector_type, sector_list in [("industry", sectors.get("industry", [])),
                                       ("concept", sectors.get("concept", []))]:
@@ -451,7 +451,7 @@ def identify_dragon_stocks(sector_count: int = 5) -> Dict:
                 "stock_name": name,
                 "board_name": sector["name"],
                 "board_type": sector_type,
-                "concept_name": code_concept_map.get(code, ""),
+                "concept_name": "",
                 "board_rank": rank,
                 "board_pct": round(board_pct, 2),
                 "stock_pct": round(stock_pct, 2),
@@ -482,9 +482,6 @@ def identify_dragon_stocks(sector_count: int = 5) -> Dict:
     # 连板龙头排行 (复用已拉取的涨停板池)
     leaders = [s for s in limit_up_pool if s["consecutive_board"] >= 2]
     leaders.sort(key=lambda x: (-x["consecutive_board"], -x["change_pct"]))
-    # 补充概念名称
-    for s in leaders:
-        s["concept_name"] = code_concept_map.get(s["stock_code"], "")
     consecutive_leaders = leaders
 
     # 分歧转一致候选 (复用已拉取的涨停板池)
@@ -526,7 +523,7 @@ def identify_dragon_stocks(sector_count: int = 5) -> Dict:
             "stock_name": lu["stock_name"],
             "board_name": lu["board_name"],
             "board_type": "涨停板交叉",
-            "concept_name": code_concept_map.get(lu["stock_code"], ""),
+            "concept_name": "",
             "board_rank": 0,
             "board_pct": round(matched_board_pct, 2),
             "stock_pct": lu["change_pct"],
@@ -551,6 +548,23 @@ def identify_dragon_stocks(sector_count: int = 5) -> Dict:
     all_dragons.sort(key=lambda x: (-x.get("levels_passed_4", x.get("consecutive_board", 0)),
                                      -x["dragon_score"]))
     super_dragons = [d for d in all_dragons if d.get("is_super_dragon")]
+
+    # 从本地 DB 批量查询概念数据，补充到所有条目
+    if get_concept_map_for_stocks:
+        all_codes = set()
+        for e in all_dragons:
+            all_codes.add(e["stock_code"])
+        for e in consecutive_leaders:
+            all_codes.add(e["stock_code"])
+        try:
+            code_concept_map = get_concept_map_for_stocks(list(all_codes))
+        except Exception:
+            logger.warning("[龙头战法] 概念查询失败，使用空映射")
+            code_concept_map = {}
+        for e in all_dragons:
+            e["concept_name"] = code_concept_map.get(e["stock_code"], e.get("concept_name", ""))
+        for e in consecutive_leaders:
+            e["concept_name"] = code_concept_map.get(e["stock_code"], e.get("concept_name", ""))
 
     return {
         "dragon_stocks": all_dragons,

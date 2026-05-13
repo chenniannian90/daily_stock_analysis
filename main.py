@@ -1186,6 +1186,45 @@ def main() -> int:
                 })
                 logger.info("龙头战法分析已启用: 时间点 14:30 17:00")
 
+            # === 概念数据每日更新 (17:30) ===
+            if getattr(config, 'concept_update_enabled', True):
+                _concept_update_last_run = {}
+                _CONCEPT_UPDATE_TIME = "17:30"
+
+                def concept_update_task():
+                    from src.core.trading_calendar import is_market_open
+                    now = datetime.now()
+                    if not is_market_open('cn', now.date()):
+                        return
+                    today = now.strftime("%Y-%m-%d")
+                    if _concept_update_last_run.get('_date') != today:
+                        _concept_update_last_run.clear()
+                        _concept_update_last_run['_date'] = today
+
+                    dt = _CONCEPT_UPDATE_TIME
+                    key = f"{today}_{dt}"
+                    if _concept_update_last_run.get(key):
+                        return
+                    h, m = int(dt[:2]), int(dt[3:5])
+                    target = now.replace(hour=h, minute=m, second=0, microsecond=0)
+                    delta = (now - target).total_seconds()
+                    if 0 <= delta < 120:
+                        try:
+                            from src.services.concept_service import fetch_and_store_concepts
+                            if fetch_and_store_concepts():
+                                _concept_update_last_run[key] = True
+                                logger.info("[概念更新] 完成")
+                        except Exception:
+                            logger.exception("[概念更新] 异常")
+
+                background_tasks.append({
+                    "task": concept_update_task,
+                    "interval_seconds": 55,
+                    "run_immediately": False,
+                    "name": "concept_update",
+                })
+                logger.info("概念数据更新已启用: %s", _CONCEPT_UPDATE_TIME)
+
             run_with_schedule(
                 task=scheduled_task,
                 schedule_time=config.schedule_time,

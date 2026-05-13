@@ -850,6 +850,34 @@ class DragonAnalysisResult(Base):
         }
 
 
+class ConceptStockMapping(Base):
+    """概念→成分股映射表，数据源：tushare 同花顺概念板块"""
+
+    __tablename__ = 'concept_stock_mapping'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    concept_code = Column(String(20), nullable=False, index=True)
+    concept_name = Column(String(100), nullable=False, index=True)
+    stock_code = Column(String(10), nullable=False, index=True)
+    stock_name = Column(String(50))
+    updated_at = Column(DateTime, default=datetime.now)
+
+    __table_args__ = (
+        UniqueConstraint('concept_code', 'stock_code', name='uix_concept_stock'),
+        Index('ix_concept_stock_search', 'stock_code', 'concept_name'),
+    )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'id': self.id,
+            'concept_code': self.concept_code,
+            'concept_name': self.concept_name,
+            'stock_code': self.stock_code,
+            'stock_name': self.stock_name,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
 class DatabaseManager:
     """
     数据库管理器 - 单例模式
