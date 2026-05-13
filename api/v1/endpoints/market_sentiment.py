@@ -37,6 +37,8 @@ def _to_item(row: dict) -> SentimentSnapshotItem:
         down_median_pct=row.get('down_median_pct', 0.0),
         up_avg_pct=row.get('up_avg_pct', 0.0),
         down_avg_pct=row.get('down_avg_pct', 0.0),
+        all_median_pct=row.get('all_median_pct', 0.0),
+        all_avg_pct=row.get('all_avg_pct', 0.0),
     )
 
 

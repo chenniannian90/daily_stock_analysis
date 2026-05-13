@@ -44,6 +44,8 @@ def take_market_snapshot(override_time: Optional[datetime] = None) -> Optional[d
                 down_median_pct=stats.get('down_median_pct', 0.0),
                 up_avg_pct=stats.get('up_avg_pct', 0.0),
                 down_avg_pct=stats.get('down_avg_pct', 0.0),
+                all_median_pct=stats.get('all_median_pct', 0.0),
+                all_avg_pct=stats.get('all_avg_pct', 0.0),
             )
             session.add(snap)
             session.flush()

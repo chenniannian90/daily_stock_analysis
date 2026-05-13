@@ -22,6 +22,8 @@ class SentimentSnapshotItem(BaseModel):
     down_median_pct: float = Field(0.0, description="下跌中位数(%)")
     up_avg_pct: float = Field(0.0, description="上涨均值(%)")
     down_avg_pct: float = Field(0.0, description="下跌均值(%)")
+    all_median_pct: float = Field(0.0, description="全市场涨跌幅中位数(%)")
+    all_avg_pct: float = Field(0.0, description="全市场涨跌幅均值(%)")
 
 
 class DailySentimentResponse(BaseModel):

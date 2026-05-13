@@ -15,6 +15,8 @@ export interface SentimentSnapshot {
   downMedianPct: number;
   upAvgPct: number;
   downAvgPct: number;
+  allMedianPct: number;
+  allAvgPct: number;
 }
 
 export interface DailySentimentResponse {

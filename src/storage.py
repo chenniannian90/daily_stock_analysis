@@ -793,6 +793,8 @@ class MarketSentimentSnapshot(Base):
     down_median_pct = Column(Float)
     up_avg_pct = Column(Float)
     down_avg_pct = Column(Float)
+    all_median_pct = Column(Float)
+    all_avg_pct = Column(Float)
     created_at = Column(DateTime, default=datetime.now)
 
     __table_args__ = (
@@ -816,6 +818,8 @@ class MarketSentimentSnapshot(Base):
             'down_median_pct': self.down_median_pct,
             'up_avg_pct': self.up_avg_pct,
             'down_avg_pct': self.down_avg_pct,
+            'all_median_pct': self.all_median_pct,
+            'all_avg_pct': self.all_avg_pct,
         }
 
 

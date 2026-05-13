@@ -1655,24 +1655,12 @@ class AkshareFetcher(BaseFetcher):
         获取市场涨跌统计
 
         数据源优先级：
-        1. 东财接口 (ak.stock_zh_a_spot_em)
-        2. 新浪接口 (ak.stock_zh_a_spot)
+        1. 新浪接口 (ak.stock_zh_a_spot)
+        2. 东财接口 (ak.stock_zh_a_spot_em)
         """
         import akshare as ak
 
-        # 优先东财接口
-        try:
-            self._set_random_user_agent()
-            self._enforce_rate_limit()
-
-            logger.info("[API调用] ak.stock_zh_a_spot_em() 获取市场统计...")
-            df = ak.stock_zh_a_spot_em()
-            if df is not None and not df.empty:
-                return self._calc_market_stats(df)
-        except Exception as e:
-            logger.warning(f"[Akshare] 东财接口获取市场统计失败: {e}，尝试新浪接口")
-
-        # 东财失败后，尝试新浪接口
+        # 优先新浪接口
         try:
             self._set_random_user_agent()
             self._enforce_rate_limit()
@@ -1682,7 +1670,19 @@ class AkshareFetcher(BaseFetcher):
             if df is not None and not df.empty:
                 return self._calc_market_stats(df)
         except Exception as e:
-            logger.error(f"[Akshare] 新浪接口获取市场统计也失败: {e}")
+            logger.warning(f"[Akshare] 新浪接口获取市场统计失败: {e}，尝试东财接口")
+
+        # 新浪失败后，尝试东财接口
+        try:
+            self._set_random_user_agent()
+            self._enforce_rate_limit()
+
+            logger.info("[API调用] ak.stock_zh_a_spot_em() 获取市场统计...")
+            df = ak.stock_zh_a_spot_em()
+            if df is not None and not df.empty:
+                return self._calc_market_stats(df)
+        except Exception as e:
+            logger.error(f"[Akshare] 东财接口获取市场统计也失败: {e}")
 
         return None
 
@@ -1712,6 +1712,7 @@ class AkshareFetcher(BaseFetcher):
         flat_count = 0
         up_pct_list = []
         down_pct_list = []
+        all_pct_list = []
 
         for i, (code, name, current_price, pre_close, amount) in enumerate(zip(
             df[code_col], df[name_col], df[close_col], df[pre_close_col], df[amount_col]
@@ -1755,6 +1756,12 @@ class AkshareFetcher(BaseFetcher):
                 if is_limit_down:
                     limit_down_count += 1
 
+                if pct_chg_col:
+                    try:
+                        all_pct_list.append(float(df.iloc[i][pct_chg_col]))
+                    except (ValueError, TypeError):
+                        all_pct_list.append((current_price - pre_close) / pre_close * 100)
+
                 if current_price > pre_close:
                     up_count += 1
                     if pct_chg_col:
@@ -1785,6 +1792,8 @@ class AkshareFetcher(BaseFetcher):
             'down_median_pct': 0.0,
             'up_avg_pct': 0.0,
             'down_avg_pct': 0.0,
+            'all_median_pct': 0.0,
+            'all_avg_pct': 0.0,
         }
 
         # 成交额统计
@@ -1804,6 +1813,10 @@ class AkshareFetcher(BaseFetcher):
         if down_pct_list:
             stats['down_median_pct'] = round(float(np.median(down_pct_list)), 2)
             stats['down_avg_pct'] = round(float(np.mean(down_pct_list)), 2)
+
+        if all_pct_list:
+            stats['all_median_pct'] = round(float(np.median(all_pct_list)), 2)
+            stats['all_avg_pct'] = round(float(np.mean(all_pct_list)), 2)
 
         return stats
 
