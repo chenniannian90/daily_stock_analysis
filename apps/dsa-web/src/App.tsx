@@ -13,6 +13,7 @@ import WatchlistDetailPage from './pages/WatchlistDetailPage';
 import DailySummaryPage from './pages/DailySummaryPage';
 import HistoryDetailPage from './pages/HistoryDetailPage';
 import MarketSentimentPage from './pages/MarketSentimentPage';
+import DragonStrategyPage from './pages/DragonStrategyPage';
 import { ApiErrorAlert, Shell } from './components/common';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { useAgentChatStore } from './stores/agentChatStore';
@@ -75,6 +76,7 @@ const AppContent: React.FC = () => {
         <Route path="/daily-summary" element={<DailySummaryPage />} />
         <Route path="/history/:id" element={<HistoryDetailPage />} />
         <Route path="/market-sentiment" element={<MarketSentimentPage />} />
+        <Route path="/dragon-strategy" element={<DragonStrategyPage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>

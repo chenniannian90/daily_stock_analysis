@@ -854,6 +854,9 @@ class Config:
     watchlist_morning_time: str = "11:30"
     watchlist_evening_time: str = "19:00"
 
+    # === 龙头战法分析 ===
+    dragon_strategy_enabled: bool = True
+
     # === 数据拉取配置 ===
     data_fetch_timeout: int = 180  # 单只股票数据拉取总超时（秒），超时后跳过该股
 
@@ -1622,6 +1625,8 @@ class Config:
             watchlist_schedule_enabled=os.getenv('WATCHLIST_SCHEDULE_ENABLED', 'true').lower() == 'true',
             watchlist_morning_time=os.getenv('WATCHLIST_MORNING_TIME', '11:30').strip() or '11:30',
             watchlist_evening_time=os.getenv('WATCHLIST_EVENING_TIME', '19:00').strip() or '19:00',
+            # 龙头战法分析
+            dragon_strategy_enabled=os.getenv('DRAGON_STRATEGY_ENABLED', 'true').lower() == 'true',
             webui_enabled=os.getenv('WEBUI_ENABLED', 'false').lower() == 'true',
             webui_host=os.getenv('WEBUI_HOST', '127.0.0.1'),
             webui_port=parse_env_int(os.getenv('WEBUI_PORT'), 8000, field_name='WEBUI_PORT', minimum=1, maximum=65535),

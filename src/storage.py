@@ -819,6 +819,33 @@ class MarketSentimentSnapshot(Base):
         }
 
 
+class DragonAnalysisResult(Base):
+    """龙头战法分析结果 — 每个交易日14:30和17:00各运行一次"""
+
+    __tablename__ = 'dragon_analysis_result'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    date = Column(Date, nullable=False, index=True)
+    run_time = Column(String(5), nullable=False)  # "14:30" or "17:00"
+    result_json = Column(Text, nullable=False)  # JSON serialized full result
+    created_at = Column(DateTime, default=datetime.now)
+
+    __table_args__ = (
+        UniqueConstraint('date', 'run_time', name='uix_dragon_analysis_date_time'),
+        Index('ix_dragon_analysis_date', 'date'),
+    )
+
+    def to_dict(self):
+        import json
+        return {
+            'id': self.id,
+            'date': self.date.isoformat() if self.date else None,
+            'run_time': self.run_time,
+            'result': json.loads(self.result_json) if self.result_json else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
 class DatabaseManager:
     """
     数据库管理器 - 单例模式

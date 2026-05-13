@@ -1140,6 +1140,52 @@ def main() -> int:
                 })
                 logger.info("市场情绪盘后兜底已启用: 17:00-23:00 每小时检查")
 
+            # 龙头战法分析（每个交易日 14:30 午盘 + 17:00 收盘后）
+            if getattr(config, 'dragon_strategy_enabled', True):
+                _dragon_last_run = {}
+                _DRAGON_TIMES = ["14:30", "17:00"]
+
+                def dragon_strategy_task():
+                    """每个交易日14:30和17:00运行龙头战法分析（2分钟窗口防漏）。"""
+                    try:
+                        from src.core.trading_calendar import is_market_open
+                    except ImportError:
+                        logger.warning("[龙头战法] trading_calendar 模块不可用，跳过")
+                        return
+
+                    now = datetime.now()
+                    if not is_market_open('cn', now.date()):
+                        return
+                    today = now.strftime("%Y-%m-%d")
+                    if _dragon_last_run.get('_date') != today:
+                        _dragon_last_run.clear()
+                        _dragon_last_run['_date'] = today
+
+                    for dt in _DRAGON_TIMES:
+                        key = f"{today}_{dt}"
+                        if _dragon_last_run.get(key):
+                            continue
+                        h, m = int(dt[:2]), int(dt[3:5])
+                        target = now.replace(hour=h, minute=m, second=0, microsecond=0)
+                        delta = (now - target).total_seconds()
+                        if 0 <= delta < 120:
+                            from src.services.dragon_analysis_service import run_and_save_dragon_analysis
+                            try:
+                                result = run_and_save_dragon_analysis(dt)
+                                if result:
+                                    _dragon_last_run[key] = True
+                            except Exception:
+                                logger.exception("[龙头战法] 分析异常 %s", dt)
+                            break
+
+                background_tasks.append({
+                    "task": dragon_strategy_task,
+                    "interval_seconds": 55,
+                    "run_immediately": False,
+                    "name": "dragon_strategy",
+                })
+                logger.info("龙头战法分析已启用: 时间点 14:30 17:00")
+
             run_with_schedule(
                 task=scheduled_task,
                 schedule_time=config.schedule_time,
