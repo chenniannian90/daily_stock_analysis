@@ -680,66 +680,96 @@ class AkshareFetcher(BaseFetcher):
     def _fetch_hk_data(self, stock_code: str, start_date: str, end_date: str) -> pd.DataFrame:
         """
         获取港股历史数据
-        
-        数据来源：ak.stock_hk_hist()
-        
+
+        数据来源（按优先级）：
+        1. ak.stock_hk_hist()     — 主数据源
+        2. ak.stock_hk_daily()    — 新浪财经备选（更稳定）
+
         Args:
             stock_code: 港股代码，如 '00700', '01810'
             start_date: 开始日期，格式 'YYYY-MM-DD'
             end_date: 结束日期，格式 'YYYY-MM-DD'
-            
+
         Returns:
             港股历史数据 DataFrame
         """
         import akshare as ak
-        
+
         # 防封禁策略 1: 随机 User-Agent
         self._set_random_user_agent()
-        
+
         # 防封禁策略 2: 强制休眠
         self._enforce_rate_limit()
-        
+
         # 确保代码格式正确（5位数字）
         code = stock_code.lower().replace('hk', '').zfill(5)
-        
-        logger.info(f"[API调用] ak.stock_hk_hist(symbol={code}, period=daily, "
-                   f"start_date={start_date.replace('-', '')}, end_date={end_date.replace('-', '')}, adjust=qfq)")
-        
+
+        import time as _time
+
+        # ── 主数据源：stock_hk_hist ──
         try:
-            import time as _time
+            logger.info(f"[API调用] ak.stock_hk_hist(symbol={code}, period=daily, "
+                       f"start_date={start_date.replace('-', '')}, end_date={end_date.replace('-', '')}, adjust=qfq)")
+
             api_start = _time.time()
-            
-            # 调用 akshare 获取港股日线数据
             df = ak.stock_hk_hist(
                 symbol=code,
                 period="daily",
                 start_date=start_date.replace('-', ''),
                 end_date=end_date.replace('-', ''),
-                adjust="qfq"  # 前复权
+                adjust="qfq"
             )
-            
             api_elapsed = _time.time() - api_start
-            
-            # 记录返回数据摘要
+
             if df is not None and not df.empty:
                 logger.info(f"[API返回] ak.stock_hk_hist 成功: 返回 {len(df)} 行数据, 耗时 {api_elapsed:.2f}s")
-                logger.info(f"[API返回] 列名: {list(df.columns)}")
-                logger.info(f"[API返回] 日期范围: {df['日期'].iloc[0]} ~ {df['日期'].iloc[-1]}")
-                logger.debug(f"[API返回] 最新3条数据:\n{df.tail(3).to_string()}")
+                return df
             else:
                 logger.warning(f"[API返回] ak.stock_hk_hist 返回空数据, 耗时 {api_elapsed:.2f}s")
-            
-            return df
-            
         except Exception as e:
-            error_msg = str(e).lower()
-            
-            # 检测反爬封禁
-            if any(keyword in error_msg for keyword in ['banned', 'blocked', '频率', 'rate', '限制']):
-                logger.warning(f"检测到可能被封禁: {e}")
-                raise RateLimitError(f"Akshare 可能被限流: {e}") from e
-            
-            raise DataFetchError(f"Akshare 获取港股数据失败: {e}") from e
+            logger.warning(f"[API错误] ak.stock_hk_hist 失败: {e}，切换到新浪财经备选...")
+
+        # ── 备选数据源：stock_hk_daily（新浪财经）──
+        try:
+            logger.info(f"[API调用] ak.stock_hk_daily(symbol={code}, adjust=qfq) — 新浪财经备选")
+
+            api_start = _time.time()
+            df = ak.stock_hk_daily(symbol=code, adjust='qfq')
+            api_elapsed = _time.time() - api_start
+
+            if df is not None and not df.empty:
+                # 新浪返回英文列名，映射为标准格式
+                try:
+                    df = self._normalize_sina_hk_data(df, stock_code)
+                except Exception:
+                    raise DataFetchError("新浪财经港股数据格式异常，无法标准化列名")
+                logger.info(f"[API返回] ak.stock_hk_daily(新浪) 成功: 返回 {len(df)} 行数据, 耗时 {api_elapsed:.2f}s")
+                return df
+            else:
+                logger.warning(f"[API返回] ak.stock_hk_daily(新浪) 返回空数据, 耗时 {api_elapsed:.2f}s")
+                raise DataFetchError("新浪财经港股数据为空")
+        except DataFetchError:
+            raise
+        except Exception as e:
+            raise DataFetchError(f"Akshare 获取港股数据失败（主源+新浪备选均失败）: {e}") from e
+
+    def _normalize_sina_hk_data(self, df: pd.DataFrame, stock_code: str) -> pd.DataFrame:
+        """
+        标准化新浪财经港股数据
+
+        新浪 stock_hk_daily 返回英文列名: date, open, high, low, close, volume, amount
+        需要映射到标准列名并补充 code 列。
+        """
+        df = df.copy()
+        df['code'] = stock_code
+
+        # 确保 date 列是字符串格式
+        if 'date' in df.columns:
+            df['date'] = pd.to_datetime(df['date']).dt.strftime('%Y-%m-%d')
+
+        # 只保留标准列
+        keep_cols = ['code'] + [c for c in STANDARD_COLUMNS if c in df.columns]
+        return df[keep_cols]
     
     def _normalize_data(self, df: pd.DataFrame, stock_code: str) -> pd.DataFrame:
         """
@@ -1660,46 +1690,50 @@ class AkshareFetcher(BaseFetcher):
         self,
         df: pd.DataFrame,
         ) -> Optional[Dict[str, Any]]:
-        """从行情 DataFrame 计算涨跌统计。"""
+        """从行情 DataFrame 计算涨跌统计，含涨跌幅中位数/均值和成交量。"""
         import numpy as np
 
         df = df.copy()
-        
+
         # 1. 提取基础比对数据：最新价、昨收
         # 兼容不同接口返回的列名 sina/em efinance tushare xtdata
         code_col = next((c for c in ['代码', '股票代码', 'ts_code','stock_code'] if c in df.columns), None)
         name_col = next((c for c in ['名称', '股票名称','name','name'] if c in df.columns), None)
         close_col = next((c for c in ['最新价', '最新价', 'close','lastPrice'] if c in df.columns), None)
         pre_close_col = next((c for c in ['昨收', '昨日收盘', 'pre_close','lastClose'] if c in df.columns), None)
-        amount_col = next((c for c in ['成交额', '成交额', 'amount','amount'] if c in df.columns), None) 
-        
+        amount_col = next((c for c in ['成交额', '成交额', 'amount','amount'] if c in df.columns), None)
+        volume_col = next((c for c in ['成交量', '成交量', 'volume'] if c in df.columns), None)
+        pct_chg_col = next((c for c in ['涨跌幅', '涨跌幅', 'pct_chg', 'pctChg'] if c in df.columns), None)
+
         limit_up_count = 0
         limit_down_count = 0
         up_count = 0
         down_count = 0
         flat_count = 0
+        up_pct_list = []
+        down_pct_list = []
 
-        for code, name, current_price, pre_close, amount in zip(
+        for i, (code, name, current_price, pre_close, amount) in enumerate(zip(
             df[code_col], df[name_col], df[close_col], df[pre_close_col], df[amount_col]
-        ):
-            
+        )):
+
             # 停牌过滤 efinance 的停牌数据有时候会缺失价格显示为 '-'，em 显示为none
             if pd.isna(current_price) or pd.isna(pre_close) or current_price in ['-'] or pre_close in ['-'] or amount == 0:
                 continue
-            
+
             # em、efinance 为str 需要转换为float
             current_price = float(current_price)
             pre_close = float(pre_close)
-            
+
             # 获取去除前缀的纯数字代码
-            pure_code = normalize_stock_code(str(code)) 
+            pure_code = normalize_stock_code(str(code))
 
             # A. 确定每只股票的涨跌幅比例 (使用纯数字代码判断)
-            if is_bse_code(pure_code): 
+            if is_bse_code(pure_code):
                 ratio = 0.30
-            elif is_kc_cy_stock(pure_code): #pure_code.startswith(('688', '30')):
+            elif is_kc_cy_stock(pure_code):
                 ratio = 0.20
-            elif is_st_stock(name): #'ST' in str_name:
+            elif is_st_stock(name):
                 ratio = 0.05
             else:
                 ratio = 0.10
@@ -1712,7 +1746,7 @@ class AkshareFetcher(BaseFetcher):
             limit_down_price_Tolerance = round(abs(pre_close * (1 - ratio) - limit_down_price), 10)
 
             # C. 精确比对
-            if current_price > 0 :
+            if current_price > 0:
                 is_limit_up = (current_price > 0) and (abs(current_price - limit_up_price) <= limit_up_price_Tolerance)
                 is_limit_down = (current_price > 0) and (abs(current_price - limit_down_price) <= limit_down_price_Tolerance)
 
@@ -1723,11 +1757,21 @@ class AkshareFetcher(BaseFetcher):
 
                 if current_price > pre_close:
                     up_count += 1
+                    if pct_chg_col:
+                        try:
+                            up_pct_list.append(abs(float(df.iloc[i][pct_chg_col])))
+                        except (ValueError, TypeError):
+                            up_pct_list.append((current_price - pre_close) / pre_close * 100)
                 elif current_price < pre_close:
                     down_count += 1
+                    if pct_chg_col:
+                        try:
+                            down_pct_list.append(abs(float(df.iloc[i][pct_chg_col])))
+                        except (ValueError, TypeError):
+                            down_pct_list.append(abs((current_price - pre_close) / pre_close * 100))
                 else:
                     flat_count += 1
-                
+
         # 统计数量
         stats = {
             'up_count': up_count,
@@ -1736,13 +1780,31 @@ class AkshareFetcher(BaseFetcher):
             'limit_up_count': limit_up_count,
             'limit_down_count': limit_down_count,
             'total_amount': 0.0,
+            'total_volume': 0.0,
+            'up_median_pct': 0.0,
+            'down_median_pct': 0.0,
+            'up_avg_pct': 0.0,
+            'down_avg_pct': 0.0,
         }
-        
+
         # 成交额统计
         if amount_col and amount_col in df.columns:
             df[amount_col] = pd.to_numeric(df[amount_col], errors='coerce')
-            stats['total_amount'] = (df[amount_col].sum() / 1e8)
-            
+            stats['total_amount'] = round(df[amount_col].sum() / 1e8, 2)
+
+        # 成交量统计（亿股）
+        if volume_col and volume_col in df.columns:
+            df[volume_col] = pd.to_numeric(df[volume_col], errors='coerce')
+            stats['total_volume'] = round(df[volume_col].sum() / 1e8, 2)
+
+        # 涨跌幅统计
+        if up_pct_list:
+            stats['up_median_pct'] = round(float(np.median(up_pct_list)), 2)
+            stats['up_avg_pct'] = round(float(np.mean(up_pct_list)), 2)
+        if down_pct_list:
+            stats['down_median_pct'] = round(float(np.median(down_pct_list)), 2)
+            stats['down_avg_pct'] = round(float(np.mean(down_pct_list)), 2)
+
         return stats
 
     def get_sector_rankings(self, n: int = 5) -> Optional[Tuple[List[Dict], List[Dict]]]:

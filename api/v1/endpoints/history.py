@@ -18,6 +18,8 @@ from api.deps import get_database_manager
 from api.v1.schemas.history import (
     HistoryListResponse,
     HistoryItem,
+    DailySummaryItem,
+    DailySummaryResponse,
     DeleteHistoryRequest,
     DeleteHistoryResponse,
     NewsIntelItem,
@@ -48,6 +50,89 @@ from src.utils.data_processing import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+@router.get(
+    "/daily-summary",
+    response_model=DailySummaryResponse,
+    responses={
+        200: {"description": "每日分析总结"},
+        400: {"description": "参数错误", "model": ErrorResponse},
+        500: {"description": "服务器错误", "model": ErrorResponse},
+    },
+    summary="获取每日分析总结",
+    description="获取指定日期的所有自选股分析结果（每只股票只返回当天最新一条），按评分降序排列"
+)
+def get_daily_summary(
+    date: str = Query(..., description="查询日期 (YYYY-MM-DD)", pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    db_manager: DatabaseManager = Depends(get_database_manager)
+) -> DailySummaryResponse:
+    """
+    获取某天的全部分析总结
+
+    查询逻辑：
+    1. 按日期筛选所有分析记录
+    2. 同一只股票当天可能被分析多次，只保留最新一条
+    3. 按 sentiment_score 降序排列
+    """
+    try:
+        from datetime import datetime
+
+        try:
+            date_obj = datetime.strptime(date, "%Y-%m-%d").date()
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail={"error": "invalid_date", "message": f"日期格式无效: {date}，应为 YYYY-MM-DD"}
+            )
+
+        # 获取当天所有记录
+        # TODO: 当自选股规模增长后，500 可能不够覆盖多次重分析场景，
+        # 应改用基于 date 的去重查询或分页循环拉取
+        records, total = db_manager.get_analysis_history_paginated(
+            start_date=date_obj,
+            end_date=date_obj,
+            offset=0,
+            limit=500
+        )
+
+        # 按股票代码去重，保留每天只最新一条
+        latest: dict = {}
+        for record in records:
+            code = record.code
+            if code not in latest or record.created_at > latest[code].created_at:
+                latest[code] = record
+
+        # 按评分降序排列
+        sorted_records = sorted(
+            latest.values(),
+            key=lambda r: r.sentiment_score if r.sentiment_score is not None else -1,
+            reverse=True
+        )
+
+        items = [
+            DailySummaryItem(
+                id=record.id,
+                stock_code=record.code,
+                stock_name=record.name,
+                sentiment_score=record.sentiment_score,
+                operation_advice=record.operation_advice,
+                analysis_summary=record.analysis_summary,
+                created_at=record.created_at.isoformat() if record.created_at else None
+            )
+            for record in sorted_records
+        ]
+
+        return DailySummaryResponse(date=date, total=len(items), items=items)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"查询每日总结失败: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail={"error": "internal_error", "message": f"查询每日总结失败: {str(e)}"}
+        )
 
 
 @router.get(

@@ -1062,6 +1062,9 @@ class DataFetcherManager:
         # Normalize code (strip SH/SZ prefix etc.)
         stock_code = normalize_stock_code(stock_code)
 
+        from src.config import get_config
+        fetch_timeout = get_config().data_fetch_timeout
+
         fetchers = self._get_fetchers_snapshot()
         errors = []
         request_start = time.time()
@@ -1135,6 +1138,17 @@ class DataFetcherManager:
             raise DataFetchError(error_summary)
 
         for attempt, fetcher in enumerate(fetchers, start=1):
+            # 数据拉取总超时检查：超过配置时间直接终止，避免慢速数据源拖垮全局
+            elapsed = time.time() - request_start
+            if elapsed > fetch_timeout:
+                timeout_error = (
+                    f"[数据源超时] {stock_code} 数据拉取超过 {fetch_timeout}s 限制 "
+                    f"(已用 {elapsed:.1f}s, 已尝试 {attempt-1}/{total_fetchers} 个数据源)"
+                )
+                logger.warning(timeout_error)
+                errors.append(timeout_error)
+                raise DataFetchError(timeout_error)
+
             try:
                 logger.info(f"[数据源尝试 {attempt}/{total_fetchers}] [{fetcher.name}] 获取 {stock_code}...")
                 df = self._call_fetcher_method(

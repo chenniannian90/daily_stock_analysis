@@ -319,8 +319,8 @@ class WatchlistService:
                 "operationAdvice": r.operation_advice,
                 "sentimentScore": r.sentiment_score,
                 "analysisSummary": (
-                    r.analysis_summary[:100] + "..."
-                    if r.analysis_summary and len(r.analysis_summary) > 100
+                    r.analysis_summary[:1000] + "..."
+                    if r.analysis_summary and len(r.analysis_summary) > 1000
                     else r.analysis_summary
                 ),
                 "backtestOutcome": backtest.outcome if backtest else None,

@@ -63,6 +63,48 @@ class HistoryListResponse(BaseModel):
         }
 
 
+class DailySummaryItem(BaseModel):
+    """每日总结条目（单只股票当日最新分析）"""
+
+    id: int = Field(..., description="分析记录ID")
+    stock_code: str = Field(..., description="股票代码")
+    stock_name: Optional[str] = Field(None, description="股票名称")
+    sentiment_score: Optional[int] = Field(None, description="情绪评分")
+    operation_advice: Optional[str] = Field(None, description="操作建议")
+    analysis_summary: Optional[str] = Field(None, description="分析摘要")
+    created_at: Optional[str] = Field(None, description="分析时间")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "id": 158,
+                "stock_code": "600519",
+                "stock_name": "贵州茅台",
+                "sentiment_score": 75,
+                "operation_advice": "持有",
+                "analysis_summary": "技术面向好，建议持有",
+                "created_at": "2024-01-01T12:00:00"
+            }
+        }
+
+
+class DailySummaryResponse(BaseModel):
+    """每日总结响应"""
+
+    date: str = Field(..., description="查询日期 (YYYY-MM-DD)")
+    total: int = Field(..., description="当日分析股票数")
+    items: List[DailySummaryItem] = Field(default_factory=list, description="分析条目列表")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "date": "2024-01-01",
+                "total": 50,
+                "items": []
+            }
+        }
+
+
 class DeleteHistoryRequest(BaseModel):
     """删除历史记录请求"""
 

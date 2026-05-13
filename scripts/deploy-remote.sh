@@ -13,6 +13,8 @@
 #   查看 logs: ./scripts/deploy-remote.sh logs
 #   重启服务: ./scripts/deploy-remote.sh restart
 #   查看状态: ./scripts/deploy-remote.sh status
+#   本地分析并同步: ./scripts/deploy-remote.sh sync
+#   仅同步不分析: ./scripts/deploy-remote.sh sync --no-run
 #   配置 Nginx: ./scripts/deploy-remote.sh nginx
 #   完整重置: ./scripts/deploy-remote.sh reset
 # ===================================
@@ -331,12 +333,80 @@ REMOTE_RESET
 }
 
 # ===================================
+# 本地分析 + 同步到远程
+# ===================================
+do_sync() {
+    local RUN_ANALYSIS=true
+    local STOCK_CODES=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --no-run) RUN_ANALYSIS=false; shift ;;
+            --stocks) STOCK_CODES="$2"; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+
+    local PROJECT_DIR
+    PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+
+    # Step 1: 本地运行分析
+    if $RUN_ANALYSIS; then
+        info "===== Step 1/4: 本地运行分析 ====="
+        cd "$PROJECT_DIR"
+        local CMD="python main.py"
+        if [ -n "$STOCK_CODES" ]; then
+            CMD="$CMD --stocks $STOCK_CODES"
+        fi
+        info "执行: $CMD"
+        if ! $CMD; then
+            error "本地分析失败，请检查日志"
+        fi
+        info "本地分析完成"
+    else
+        info "===== Step 1/4: 跳过本地分析（--no-run）====="
+    fi
+
+    # Step 2: 停远程容器（释放 DB 锁）
+    info "===== Step 2/4: 暂停远程容器 ====="
+    ssh_cmd "cd $REMOTE_DIR && docker compose -f $COMPOSE_FILE stop server" || warn "容器停止失败，继续执行..."
+
+    # Step 3: 同步数据到远程
+    info "===== Step 3/4: 同步数据到远程 ====="
+    local SYNC_DIRS=("$PROJECT_DIR/data" "$PROJECT_DIR/reports")
+
+    for dir in "${SYNC_DIRS[@]}"; do
+        if [ -d "$dir" ]; then
+            info "同步 $dir ..."
+            rsync -avz --progress \
+                --exclude='*.tmp' \
+                --exclude='*.lock' \
+                "$dir/" "$REMOTE_HOST:$REMOTE_DIR/$(basename "$dir")/" || {
+                warn "rsync 失败，尝试 scp 回退..."
+                scp -r "$dir"/* "$REMOTE_HOST:$REMOTE_DIR/$(basename "$dir")/" 2>/dev/null || warn "$(basename "$dir") 同步失败"
+            }
+        else
+            warn "$dir 不存在，跳过"
+        fi
+    done
+    info "数据同步完成"
+
+    # Step 4: 重启远程容器
+    info "===== Step 4/4: 重启远程容器 ====="
+    ssh_cmd "cd $REMOTE_DIR && docker compose -f $COMPOSE_FILE up -d server && sleep 5 && docker compose -f $COMPOSE_FILE ps"
+    info "===== 同步部署完成 ====="
+    info ""
+    info "访问: http://$DOMAIN"
+}
+
+# ===================================
 # 主入口
 # ===================================
 case "${1:-help}" in
     init)    do_init    ;;
     update)  do_update  ;;
     quick)   do_quick   ;;
+    sync)    shift; do_sync "$@" ;;
     nginx)   do_nginx   ;;
     logs)    do_logs     ;;
     restart) do_restart ;;
@@ -354,6 +424,9 @@ case "${1:-help}" in
         echo "  init      首次部署（安装依赖 + 克隆代码 + 配置 Nginx + 启动服务）"
         echo "  update    更新部署（拉取代码 + 重建镜像 + 重启服务）"
         echo "  quick     快速更新（拉取代码 + 重启，不重建镜像）"
+        echo "  sync      本地分析并同步到远程服务器"
+        echo "             --no-run   跳过本地分析，仅同步已有结果"
+        echo "             --stocks   指定股票代码（如 600519,000001）"
         echo "  nginx     仅配置/更新 Nginx 反向代理"
         echo "  logs      查看服务日志"
         echo "  restart   重启服务"

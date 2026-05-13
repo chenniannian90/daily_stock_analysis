@@ -1033,6 +1033,113 @@ def main() -> int:
                 })
                 logger.info(f"自选股定时分析已启用: 早盘 {config.watchlist_morning_time}, 晚盘 {config.watchlist_evening_time}")
 
+            # 市场情绪采集（每个交易日 9 个固定时间点）
+            if getattr(config, 'market_sentiment_enabled', True):
+                _sentiment_last_run = {}
+
+                def market_sentiment_task():
+                    """每个交易日固定时间点采集市场情绪快照（2分钟窗口防漏）。"""
+                    try:
+                        from src.core.trading_calendar import is_market_open
+                    except ImportError:
+                        logger.warning("[市场情绪] trading_calendar 模块不可用，跳过快照采集")
+                        return
+
+                    now = datetime.now()
+                    if not is_market_open('cn', now.date()):
+                        return
+
+                    SNAPSHOT_TIMES = [
+                        "09:30", "10:00", "10:30", "11:00", "11:30",
+                        "13:30", "14:00", "14:30", "15:00",
+                    ]
+                    today = now.strftime("%Y-%m-%d")
+                    if _sentiment_last_run.get('_date') != today:
+                        _sentiment_last_run.clear()
+                        _sentiment_last_run['_date'] = today
+
+                    for st in SNAPSHOT_TIMES:
+                        key = f"{today}_{st}"
+                        if _sentiment_last_run.get(key):
+                            continue
+                        h, m = int(st[:2]), int(st[3:5])
+                        target = now.replace(hour=h, minute=m, second=0, microsecond=0)
+                        delta = (now - target).total_seconds()
+                        if 0 <= delta < 120:
+                            from src.services.market_sentiment_service import take_market_snapshot
+                            try:
+                                result = take_market_snapshot()
+                                if result:
+                                    _sentiment_last_run[key] = True
+                            except Exception:
+                                logger.exception("[市场情绪] 快照采集异常 %s", st)
+                            break
+
+                background_tasks.append({
+                    "task": market_sentiment_task,
+                    "interval_seconds": 55,
+                    "run_immediately": False,
+                    "name": "market_sentiment",
+                })
+                logger.info("市场情绪采集已启用: 时间点 %s", " ".join([
+                    "09:30", "10:00", "10:30", "11:00", "11:30",
+                    "13:30", "14:00", "14:30", "15:00",
+                ]))
+
+            # 盘后收盘快照兜底（17:00-23:00 每小时检查一次）
+            if getattr(config, 'market_sentiment_enabled', True):
+                _post_close_last_check = {}
+
+                def post_close_sentinel_task():
+                    """盘后每小时检查15:00收盘快照是否已采集，未采集则补采。"""
+                    try:
+                        from src.core.trading_calendar import is_market_open
+                    except ImportError:
+                        logger.warning("[市场情绪] trading_calendar 模块不可用，跳过盘后兜底")
+                        return
+
+                    now = datetime.now()
+                    if not is_market_open('cn', now.date()):
+                        return
+                    hour = now.hour
+                    if hour < 17 or hour > 23:
+                        return
+
+                    today = now.strftime("%Y-%m-%d")
+                    if _post_close_last_check.get('_date') != today:
+                        _post_close_last_check.clear()
+                        _post_close_last_check['_date'] = today
+
+                    check_key = f"{today}_{hour}"
+                    if _post_close_last_check.get(check_key):
+                        return
+                    _post_close_last_check[check_key] = True
+
+                    from src.services.market_sentiment_service import (
+                        snapshot_exists_for_time,
+                        take_market_snapshot,
+                    )
+
+                    if snapshot_exists_for_time(now.date(), "15:00"):
+                        return
+
+                    logger.info("[市场情绪] 盘后补采15:00收盘快照...")
+                    close_time = now.replace(hour=15, minute=0, second=0, microsecond=0)
+                    try:
+                        result = take_market_snapshot(override_time=close_time)
+                        if result:
+                            logger.info("[市场情绪] 盘后补采成功")
+                    except Exception:
+                        logger.exception("[市场情绪] 盘后补采异常")
+
+                background_tasks.append({
+                    "task": post_close_sentinel_task,
+                    "interval_seconds": 55,
+                    "run_immediately": False,
+                    "name": "market_sentiment_post_close",
+                })
+                logger.info("市场情绪盘后兜底已启用: 17:00-23:00 每小时检查")
+
             run_with_schedule(
                 task=scheduled_task,
                 schedule_time=config.schedule_time,

@@ -1,7 +1,7 @@
 import type React from 'react';
 import { useCallback, useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, TrendingUp, TrendingDown, Minus, Tag } from 'lucide-react';
+import { ArrowLeft, TrendingUp, TrendingDown, Minus, Tag, ChevronDown, ChevronUp } from 'lucide-react';
 import { watchlistApi } from '../api/watchlist';
 import type { ParsedApiError } from '../api/error';
 import { getParsedApiError } from '../api/error';
@@ -15,6 +15,14 @@ import {
   TagPickerDrawer,
 } from '../components/common';
 import type { StockHistoryResponse, AnalysisHistoryItem, TagItem, TagInfo } from '../types/watchlist';
+import { cn } from '../utils/cn';
+
+const SCORE_COLOR = (score?: number) => {
+  if (score == null) return 'text-muted-foreground';
+  if (score >= 70) return 'text-emerald-500';
+  if (score >= 50) return 'text-amber-500';
+  return 'text-red-500';
+};
 
 const DEFAULT_PAGE_SIZE = 10;
 
@@ -32,6 +40,8 @@ const WatchlistDetailPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<ParsedApiError | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
+
+  const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
 
   // Tags state
   const [allTags, setAllTags] = useState<TagItem[]>([]);
@@ -275,73 +285,130 @@ const WatchlistDetailPage: React.FC = () => {
                 <thead>
                   <tr className="border-b border-white/10 text-xs text-secondary-text">
                     <th className="text-left py-3 pr-4 font-medium">日期</th>
+                    <th className="text-center py-3 pr-4 font-medium">评分</th>
                     <th className="text-left py-3 pr-4 font-medium">预测方向</th>
                     <th className="text-left py-3 pr-4 font-medium">操作建议</th>
                     <th className="text-center py-3 pr-4 font-medium">回测结果</th>
                     <th className="text-center py-3 font-medium">准确性</th>
+                    <th className="text-center py-3 font-medium w-10">展开</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {historyData.items.map((item: AnalysisHistoryItem) => {
+                  {historyData.items.map((item: AnalysisHistoryItem, idx: number) => {
                     const prediction = formatPrediction(item.trendPrediction);
+                    const isExpanded = expandedIdx === idx;
                     return (
-                      <tr
-                        key={item.id}
-                        className="border-b border-white/5 hover:bg-white/[0.02] transition-colors"
-                      >
-                        <td className="py-3 pr-4 text-secondary-text">
-                          {item.analysisDate || item.analysisTime ? (
-                            <span>
-                              {item.analysisDate || ''}
-                              {item.analysisTime ? (
-                                <span className="text-xs ml-1 text-muted-text">
-                                  {item.analysisTime}
-                                </span>
-                              ) : null}
-                            </span>
-                          ) : (
-                            '--'
+                      <>
+                        <tr
+                          key={item.id}
+                          className={cn(
+                            'border-b border-white/5 hover:bg-white/[0.02] transition-colors cursor-pointer',
                           )}
-                        </td>
-                        <td className="py-3 pr-4">
-                          {item.trendPrediction ? (
-                            <Badge
-                              variant={prediction.variant}
-                              size="sm"
-                            >
-                              {prediction.text}
-                            </Badge>
-                          ) : (
-                            <span className="text-secondary-text">--</span>
-                          )}
-                        </td>
-                        <td className="py-3 pr-4 text-secondary-text max-w-[200px] truncate">
-                          {item.operationAdvice || '--'}
-                        </td>
-                        <td className="py-3 pr-4 text-center">
-                          {item.backtestOutcome ? (
-                            <span className="text-xs text-secondary-text">
-                              {item.backtestOutcome}
-                            </span>
-                          ) : (
-                            <span className="text-muted-text">--</span>
-                          )}
-                        </td>
-                        <td className="py-3 text-center">
-                          <div className="flex items-center justify-center gap-1">
-                            {renderDirectionIcon(item.directionCorrect)}
-                            <span className="text-xs">
-                              {item.directionCorrect === true ? (
-                                <span className="text-success">正确</span>
-                              ) : item.directionCorrect === false ? (
-                                <span className="text-danger">错误</span>
-                              ) : (
-                                <span className="text-muted-text">--</span>
-                              )}
-                            </span>
-                          </div>
-                        </td>
-                      </tr>
+                          onClick={() => setExpandedIdx(isExpanded ? null : idx)}
+                        >
+                          <td className="py-3 pr-4 text-secondary-text">
+                            {item.analysisDate || item.analysisTime ? (
+                              <span>
+                                {item.analysisDate || ''}
+                                {item.analysisTime ? (
+                                  <span className="text-xs ml-1 text-muted-text">
+                                    {item.analysisTime}
+                                  </span>
+                                ) : null}
+                              </span>
+                            ) : (
+                              '--'
+                            )}
+                          </td>
+                          <td className={cn('py-3 pr-4 text-center font-bold', SCORE_COLOR(item.sentimentScore))}>
+                            {item.sentimentScore ?? '--'}
+                          </td>
+                          <td className="py-3 pr-4">
+                            {item.trendPrediction ? (
+                              <Badge
+                                variant={prediction.variant}
+                                size="sm"
+                              >
+                                {prediction.text}
+                              </Badge>
+                            ) : (
+                              <span className="text-secondary-text">--</span>
+                            )}
+                          </td>
+                          <td className="py-3 pr-4 text-secondary-text max-w-[200px] truncate">
+                            {item.operationAdvice || '--'}
+                          </td>
+                          <td className="py-3 pr-4 text-center">
+                            {item.backtestOutcome ? (
+                              <span className="text-xs text-secondary-text">
+                                {item.backtestOutcome}
+                              </span>
+                            ) : (
+                              <span className="text-muted-text">--</span>
+                            )}
+                          </td>
+                          <td className="py-3 text-center">
+                            <div className="flex items-center justify-center gap-1">
+                              {renderDirectionIcon(item.directionCorrect)}
+                              <span className="text-xs">
+                                {item.directionCorrect === true ? (
+                                  <span className="text-success">正确</span>
+                                ) : item.directionCorrect === false ? (
+                                  <span className="text-danger">错误</span>
+                                ) : (
+                                  <span className="text-muted-text">--</span>
+                                )}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="py-3 text-center">
+                            {isExpanded
+                              ? <ChevronUp className="mx-auto h-4 w-4 text-muted-foreground" />
+                              : <ChevronDown className="mx-auto h-4 w-4 text-muted-foreground" />
+                            }
+                          </td>
+                        </tr>
+                        {isExpanded && (
+                          <tr key={`${item.id}-expanded`} className="border-b border-white/5 bg-white/[0.02]">
+                            <td colSpan={7} className="px-6 py-4">
+                              <div className="grid gap-3 sm:grid-cols-3">
+                                <div>
+                                  <p className="mb-1 text-xs font-medium text-muted-foreground">操作建议</p>
+                                  <p>{item.operationAdvice || '—'}</p>
+                                </div>
+                                <div>
+                                  <p className="mb-1 text-xs font-medium text-muted-foreground">情绪评分</p>
+                                  <p className={cn('font-bold', SCORE_COLOR(item.sentimentScore))}>
+                                    {item.sentimentScore ?? '—'}
+                                  </p>
+                                </div>
+                                <div>
+                                  <p className="mb-1 text-xs font-medium text-muted-foreground">趋势预测</p>
+                                  <p>{item.trendPrediction || '—'}</p>
+                                </div>
+                              </div>
+                              <div className="mt-3">
+                                <p className="mb-1 text-xs font-medium text-muted-foreground">分析摘要</p>
+                                <p className="text-sm leading-relaxed text-foreground/80">
+                                  {item.analysisSummary || '暂无摘要'}
+                                </p>
+                              </div>
+                              <div className="mt-3">
+                                <button
+                                  type="button"
+                                  className="text-xs text-cyan hover:text-white transition-colors"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    navigate(`/history/${item.id}`);
+                                  }}
+                                >
+                                  查看完整分析报告 →
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </>
                     );
                   })}
                 </tbody>

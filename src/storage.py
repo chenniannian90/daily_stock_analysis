@@ -774,6 +774,51 @@ class LLMUsage(Base):
     called_at = Column(DateTime, default=datetime.now, index=True)
 
 
+class MarketSentimentSnapshot(Base):
+    """每日市场情绪快照 — 每个交易日9个固定时间点采集"""
+
+    __tablename__ = 'market_sentiment_snapshot'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    snapshot_time = Column(DateTime, nullable=False, index=True)
+    date = Column(Date, nullable=False, index=True)
+    up_count = Column(Integer, default=0)
+    down_count = Column(Integer, default=0)
+    flat_count = Column(Integer, default=0)
+    limit_up_count = Column(Integer, default=0)
+    limit_down_count = Column(Integer, default=0)
+    total_volume = Column(Float)
+    total_amount = Column(Float)
+    up_median_pct = Column(Float)
+    down_median_pct = Column(Float)
+    up_avg_pct = Column(Float)
+    down_avg_pct = Column(Float)
+    created_at = Column(DateTime, default=datetime.now)
+
+    __table_args__ = (
+        UniqueConstraint('date', 'snapshot_time', name='uix_sentiment_date_time'),
+        Index('ix_sentiment_date', 'date'),
+    )
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'snapshot_time': self.snapshot_time.strftime('%H:%M') if self.snapshot_time else None,
+            'date': self.date.isoformat() if self.date else None,
+            'up_count': self.up_count,
+            'down_count': self.down_count,
+            'flat_count': self.flat_count,
+            'limit_up_count': self.limit_up_count,
+            'limit_down_count': self.limit_down_count,
+            'total_volume': self.total_volume,
+            'total_amount': self.total_amount,
+            'up_median_pct': self.up_median_pct,
+            'down_median_pct': self.down_median_pct,
+            'up_avg_pct': self.up_avg_pct,
+            'down_avg_pct': self.down_avg_pct,
+        }
+
+
 class DatabaseManager:
     """
     数据库管理器 - 单例模式

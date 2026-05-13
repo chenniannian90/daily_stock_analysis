@@ -9,6 +9,24 @@ import type {
   NewsIntelItem,
 } from '../types/analysis';
 
+// ============ 类型定义 ============
+
+export interface DailySummaryItem {
+  id: number;
+  stockCode: string;
+  stockName?: string;
+  sentimentScore?: number;
+  operationAdvice?: string;
+  analysisSummary?: string;
+  createdAt?: string;
+}
+
+export interface DailySummaryResponse {
+  date: string;
+  total: number;
+  items: DailySummaryItem[];
+}
+
 // ============ API 接口 ============
 
 export interface GetHistoryListParams extends HistoryFilters {
@@ -88,5 +106,21 @@ export const historyApi = {
     });
 
     return toCamelCase<{ deleted: number }>(response.data);
+  },
+
+  /**
+   * 获取每日分析总结
+   * @param date 查询日期 (YYYY-MM-DD)
+   */
+  getDailySummary: async (date: string): Promise<DailySummaryResponse> => {
+    const response = await apiClient.get<Record<string, unknown>>('/api/v1/history/daily-summary', {
+      params: { date },
+    });
+    const data = toCamelCase<DailySummaryResponse>(response.data);
+    return {
+      date: data.date,
+      total: data.total,
+      items: (data.items || []).map(item => toCamelCase<DailySummaryItem>(item)),
+    };
   },
 };

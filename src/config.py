@@ -854,6 +854,9 @@ class Config:
     watchlist_morning_time: str = "11:30"
     watchlist_evening_time: str = "19:00"
 
+    # === 数据拉取配置 ===
+    data_fetch_timeout: int = 180  # 单只股票数据拉取总超时（秒），超时后跳过该股
+
     # === 实时行情增强数据配置 ===
     # 实时行情开关（关闭后使用历史收盘价进行分析）
     enable_realtime_quote: bool = True
@@ -1597,6 +1600,7 @@ class Config:
             log_dir=os.getenv('LOG_DIR', './logs'),
             log_level=os.getenv('LOG_LEVEL', 'INFO'),
             max_workers=parse_env_int(os.getenv('MAX_WORKERS'), 3, field_name='MAX_WORKERS', minimum=1),
+            data_fetch_timeout=parse_env_int(os.getenv('DATA_FETCH_TIMEOUT'), 180, field_name='DATA_FETCH_TIMEOUT', minimum=10),
             debug=os.getenv('DEBUG', 'false').lower() == 'true',
             config_validate_mode=os.getenv('CONFIG_VALIDATE_MODE', 'warn').lower(),
             http_proxy=os.getenv('HTTP_PROXY'),
