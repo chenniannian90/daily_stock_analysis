@@ -1265,6 +1265,45 @@ def main() -> int:
                 })
                 logger.info("板块排名更新已启用: %s", _SECTOR_RANKING_TIME)
 
+            if getattr(config, 'stock_stat_enabled', True):
+                _stock_stat_last_run = {}
+                _STOCK_STAT_TIME = "15:05"
+
+                def stock_stat_task():
+                    from src.core.trading_calendar import is_market_open
+                    now = datetime.now()
+                    if not is_market_open('cn', now.date()):
+                        return
+                    today = now.strftime("%Y-%m-%d")
+                    if _stock_stat_last_run.get('_date') != today:
+                        _stock_stat_last_run.clear()
+                        _stock_stat_last_run['_date'] = today
+
+                    dt = _STOCK_STAT_TIME
+                    key = f"{today}_{dt}"
+                    if _stock_stat_last_run.get(key):
+                        return
+                    h, m = int(dt[:2]), int(dt[3:5])
+                    target = now.replace(hour=h, minute=m, second=0, microsecond=0)
+                    delta = (now - target).total_seconds()
+                    if 0 <= delta < 300:
+                        from src.services.stock_stat_service import collect_daily_stats
+                        try:
+                            n = collect_daily_stats()
+                            if n:
+                                _stock_stat_last_run[key] = True
+                                logger.info("[股票统计] 完成: %d 条", n)
+                        except Exception:
+                            logger.exception("[股票统计] 采集失败")
+
+                background_tasks.append({
+                    "task": stock_stat_task,
+                    "interval_seconds": 55,
+                    "run_immediately": False,
+                    "name": "stock_stat",
+                })
+                logger.info("股票统计采集已启用: %s", _STOCK_STAT_TIME)
+
             run_with_schedule(
                 task=scheduled_task,
                 schedule_time=config.schedule_time,

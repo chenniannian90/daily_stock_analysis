@@ -15,6 +15,7 @@ import HistoryDetailPage from './pages/HistoryDetailPage';
 import MarketSentimentPage from './pages/MarketSentimentPage';
 import DragonStrategyPage from './pages/DragonStrategyPage';
 import SectorRankingPage from './pages/SectorRankingPage';
+import StockStatPage from './pages/StockStatPage';
 import { ApiErrorAlert, Shell } from './components/common';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { useAgentChatStore } from './stores/agentChatStore';
@@ -79,6 +80,7 @@ const AppContent: React.FC = () => {
         <Route path="/market-sentiment" element={<MarketSentimentPage />} />
         <Route path="/dragon-strategy" element={<DragonStrategyPage />} />
         <Route path="/sector-rankings" element={<SectorRankingPage />} />
+        <Route path="/stock-stat" element={<StockStatPage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>

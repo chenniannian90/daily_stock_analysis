@@ -863,6 +863,9 @@ class Config:
     # === 板块排名 ===
     sector_ranking_enabled: bool = True  # 每日采集中行业/概念板块排名数据
 
+    # === 股票统计 ===
+    stock_stat_enabled: bool = True  # 每日收盘后采集全A股行情快照（用于词云统计）
+
     # === 数据拉取配置 ===
     data_fetch_timeout: int = 180  # 单只股票数据拉取总超时（秒），超时后跳过该股
 
@@ -1637,6 +1640,8 @@ class Config:
             concept_update_enabled=os.getenv('CONCEPT_UPDATE_ENABLED', 'true').lower() == 'true',
             # 板块排名
             sector_ranking_enabled=os.getenv('SECTOR_RANKING_ENABLED', 'true').lower() == 'true',
+            # 股票统计
+            stock_stat_enabled=os.getenv('STOCK_STAT_ENABLED', 'true').lower() == 'true',
             webui_enabled=os.getenv('WEBUI_ENABLED', 'false').lower() == 'true',
             webui_host=os.getenv('WEBUI_HOST', '127.0.0.1'),
             webui_port=parse_env_int(os.getenv('WEBUI_PORT'), 8000, field_name='WEBUI_PORT', minimum=1, maximum=65535),

@@ -918,6 +918,42 @@ class SectorDailySnapshot(Base):
         }
 
 
+class StockDailyStat(Base):
+    """全A股每日统计快照 — 每交易日收盘后采集，用于词云统计"""
+
+    __tablename__ = 'stock_daily_stat'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    date = Column(Date, nullable=False, index=True)
+    stock_code = Column(String(10), nullable=False)
+    stock_name = Column(String(50))
+    pct_chg = Column(Float)
+    high = Column(Float)
+    low = Column(Float)
+    pre_close = Column(Float)
+    sector_name = Column(String(100))
+    created_at = Column(DateTime, default=datetime.now)
+
+    __table_args__ = (
+        UniqueConstraint('date', 'stock_code', name='uix_stat_date_stock'),
+        Index('ix_stat_date', 'date'),
+    )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'id': self.id,
+            'date': self.date.isoformat() if self.date else None,
+            'stock_code': self.stock_code,
+            'stock_name': self.stock_name,
+            'pct_chg': self.pct_chg,
+            'high': self.high,
+            'low': self.low,
+            'pre_close': self.pre_close,
+            'sector_name': self.sector_name,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
 class DatabaseManager:
     """
     数据库管理器 - 单例模式
