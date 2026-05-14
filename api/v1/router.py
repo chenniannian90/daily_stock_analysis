@@ -11,7 +11,7 @@ API v1 路由聚合
 
 from fastapi import APIRouter
 
-from api.v1.endpoints import analysis, auth, history, stocks, backtest, system_config, agent, usage, portfolio, watchlist, market_sentiment, dragon_strategy, sector_ranking, stock_stat
+from api.v1.endpoints import analysis, auth, history, stocks, backtest, system_config, agent, usage, portfolio, watchlist, market_sentiment, dragon_strategy, sector_ranking, stock_stat, volume_breakout
 
 # 创建 v1 版本主路由
 router = APIRouter(prefix="/api/v1")
@@ -97,4 +97,10 @@ router.include_router(
     stock_stat.router,
     prefix="/stock-stat",
     tags=["StockStat"]
+)
+
+router.include_router(
+    volume_breakout.router,
+    prefix="/volume-breakout",
+    tags=["VolumeBreakout"]
 )

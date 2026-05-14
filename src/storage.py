@@ -919,7 +919,7 @@ class SectorDailySnapshot(Base):
 
 
 class StockDailyStat(Base):
-    """全A股每日统计快照 — 每交易日收盘后采集，用于词云统计"""
+    """全A股每日统计快照 — 每交易日收盘后采集，用于词云统计和放量检测"""
 
     __tablename__ = 'stock_daily_stat'
 
@@ -931,6 +931,8 @@ class StockDailyStat(Base):
     high = Column(Float)
     low = Column(Float)
     pre_close = Column(Float)
+    volume = Column(Float)              # 成交量（手）
+    security_type = Column(String(10))  # 'stock' | 'etf'
     sector_name = Column(String(100))
     created_at = Column(DateTime, default=datetime.now)
 
@@ -949,6 +951,8 @@ class StockDailyStat(Base):
             'high': self.high,
             'low': self.low,
             'pre_close': self.pre_close,
+            'volume': self.volume,
+            'security_type': self.security_type,
             'sector_name': self.sector_name,
             'created_at': self.created_at.isoformat() if self.created_at else None,
         }
@@ -1024,6 +1028,8 @@ class DatabaseManager:
 
         # 数据库迁移：为 watchlist_items 表添加分析结果列（兼容旧表）
         self._migrate_watchlist_columns()
+        # 数据库迁移：为 stock_daily_stat 表添加 volume/security_type 列
+        self._migrate_stock_daily_stat()
 
         self._initialized = True
         logger.info(f"数据库初始化完成: {db_url}")
@@ -1060,6 +1066,35 @@ class DatabaseManager:
                     conn.commit()
         except Exception as e:
             logger.warning(f"watchlist_items migration skipped: {e}")
+
+    def _migrate_stock_daily_stat(self) -> None:
+        """为 stock_daily_stat 表添加 volume/security_type 列（兼容旧表，幂等）。"""
+        from sqlalchemy import text as _text
+        new_cols = [
+            ('volume', 'FLOAT'),
+            ('security_type', 'VARCHAR(10)'),
+        ]
+        try:
+            if self._is_sqlite_engine:
+                with self._engine.connect() as conn:
+                    existing = {row[1] for row in conn.execute(
+                        _text("PRAGMA table_info(stock_daily_stat)")
+                    ).fetchall()}
+                    for col_name, col_type in new_cols:
+                        if col_name not in existing:
+                            conn.execute(_text(
+                                f"ALTER TABLE stock_daily_stat ADD COLUMN {col_name} {col_type}"
+                            ))
+                    conn.commit()
+            else:
+                with self._engine.connect() as conn:
+                    for col_name, col_type in new_cols:
+                        conn.execute(_text(
+                            f"ALTER TABLE stock_daily_stat ADD COLUMN IF NOT EXISTS {col_name} {col_type}"
+                        ))
+                    conn.commit()
+        except Exception as e:
+            logger.warning(f"stock_daily_stat migration skipped: {e}")
 
     @classmethod
     def get_instance(cls) -> 'DatabaseManager':

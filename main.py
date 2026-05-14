@@ -1287,12 +1287,16 @@ def main() -> int:
                     target = now.replace(hour=h, minute=m, second=0, microsecond=0)
                     delta = (now - target).total_seconds()
                     if 0 <= delta < 300:
-                        from src.services.stock_stat_service import collect_daily_stats
+                        from src.services.stock_stat_service import collect_daily_stats, collect_etf_daily_stats
                         try:
                             n = collect_daily_stats()
                             if n:
-                                _stock_stat_last_run[key] = True
                                 logger.info("[股票统计] 完成: %d 条", n)
+                            n2 = collect_etf_daily_stats()
+                            if n2:
+                                logger.info("[ETF统计] 完成: %d 条", n2)
+                            if n or n2:
+                                _stock_stat_last_run[key] = True
                         except Exception:
                             logger.exception("[股票统计] 采集失败")
 
@@ -1302,7 +1306,52 @@ def main() -> int:
                     "run_immediately": False,
                     "name": "stock_stat",
                 })
-                logger.info("股票统计采集已启用: %s", _STOCK_STAT_TIME)
+                logger.info("股票统计采集已启用: %s (含ETF)", _STOCK_STAT_TIME)
+
+            # 放量检测（每个交易日 18:00）
+            if getattr(config, 'volume_breakout_enabled', True):
+                _breakout_last_run = {}
+                _BREAKOUT_TIME = "18:00"
+
+                def volume_breakout_task():
+                    from src.core.trading_calendar import is_market_open
+                    now = datetime.now()
+                    if not is_market_open('cn', now.date()):
+                        return
+                    today = now.strftime("%Y-%m-%d")
+                    if _breakout_last_run.get('_date') != today:
+                        _breakout_last_run.clear()
+                        _breakout_last_run['_date'] = today
+
+                    dt = _BREAKOUT_TIME
+                    key = f"{today}_{dt}"
+                    if _breakout_last_run.get(key):
+                        return
+                    h, m = int(dt[:2]), int(dt[3:5])
+                    target = now.replace(hour=h, minute=m, second=0, microsecond=0)
+                    delta = (now - target).total_seconds()
+                    if 0 <= delta < 300:
+                        from src.services.volume_breakout_service import get_breakout_results
+                        try:
+                            result = get_breakout_results()
+                            if result and result.get("stock_count", 0) > 0:
+                                _breakout_last_run[key] = True
+                                logger.info("[放量检测] 个股%d ETF%d 板块%d 概念%d",
+                                            result["stock_count"], result["etf_count"],
+                                            result["sector_count"], result["concept_count"])
+                            else:
+                                _breakout_last_run[key] = True
+                                logger.info("[放量检测] 完成，无放量标的")
+                        except Exception:
+                            logger.exception("[放量检测] 异常")
+
+                background_tasks.append({
+                    "task": volume_breakout_task,
+                    "interval_seconds": 55,
+                    "run_immediately": False,
+                    "name": "volume_breakout",
+                })
+                logger.info("放量检测已启用: %s", _BREAKOUT_TIME)
 
             run_with_schedule(
                 task=scheduled_task,

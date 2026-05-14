@@ -118,6 +118,7 @@ def collect_daily_stats(target_date: Optional[date] = None) -> int:
     high_col = next((c for c in ['最高', 'high'] if c in df.columns), None)
     low_col = next((c for c in ['最低', 'low'] if c in df.columns), None)
     pre_col = next((c for c in ['昨收', 'pre_close'] if c in df.columns), None)
+    vol_col = next((c for c in ['成交量', 'volume'] if c in df.columns), None)
     sector_col = next((c for c in ['行业', '所属行业'] if c in df.columns), None)
 
     if not all([code_col, name_col, pct_col, high_col, low_col, pre_col]):
@@ -141,6 +142,7 @@ def collect_daily_stats(target_date: Optional[date] = None) -> int:
             high = float(row.get(high_col, 0) or 0)
             low = float(row.get(low_col, 0) or 0)
             pre = float(row.get(pre_col, 0) or 0)
+            vol = float(row.get(vol_col, 0) or 0) if vol_col else 0
         except (ValueError, TypeError):
             continue
 
@@ -156,6 +158,8 @@ def collect_daily_stats(target_date: Optional[date] = None) -> int:
             "high": high,
             "low": low,
             "pre_close": pre,
+            "volume": vol,
+            "security_type": "stock",
             "sector_name": sector,
         })
 
@@ -189,6 +193,89 @@ def collect_daily_stats(target_date: Optional[date] = None) -> int:
         logger.info("[股票统计] %s: 写入 %d 条", today.isoformat(), len(snapshots))
     except Exception:
         logger.exception("[股票统计] DB写入失败")
+        return 0
+
+    return len(snapshots)
+
+
+def collect_etf_daily_stats(target_date: Optional[date] = None) -> int:
+    """采集全市场ETF当日行情快照（成交量），返回写入条数。"""
+    import akshare as ak
+
+    today = target_date or date.today()
+
+    logger.info("[ETF统计] 获取全市场ETF行情(东财)...")
+    try:
+        df = ak.fund_etf_spot_em()
+        if df is None or df.empty:
+            logger.warning("[ETF统计] fund_etf_spot_em 返回空")
+            return 0
+        logger.info("[ETF统计] 东财ETF行情: %d 条", len(df))
+    except Exception:
+        logger.exception("[ETF统计] fund_etf_spot_em 失败")
+        return 0
+
+    # 字段映射
+    code_col = next((c for c in ['代码', '基金代码'] if c in df.columns), None)
+    name_col = next((c for c in ['名称', '基金简称'] if c in df.columns), None)
+    vol_col = next((c for c in ['成交量', 'volume'] if c in df.columns), None)
+    pct_col = next((c for c in ['涨跌幅', 'pct_chg'] if c in df.columns), None)
+    high_col = next((c for c in ['最高', 'high'] if c in df.columns), None)
+    low_col = next((c for c in ['最低', 'low'] if c in df.columns), None)
+    pre_col = next((c for c in ['昨收', 'pre_close'] if c in df.columns), None)
+
+    if not all([code_col, name_col, vol_col]):
+        logger.error("[ETF统计] 列匹配失败: %s", list(df.columns)[:20])
+        return 0
+
+    snapshots: list = []
+    for _, row in df.iterrows():
+        code = str(row.get(code_col, ''))
+        name = str(row.get(name_col, ''))
+        if not code or not name:
+            continue
+
+        try:
+            vol = float(row.get(vol_col, 0) or 0)
+            pct = float(row.get(pct_col, 0) or 0) if pct_col else 0
+            high = float(row.get(high_col, 0) or 0) if high_col else 0
+            low = float(row.get(low_col, 0) or 0) if low_col else 0
+            pre = float(row.get(pre_col, 0) or 0) if pre_col else 0
+        except (ValueError, TypeError):
+            continue
+
+        snapshots.append({
+            "date": today,
+            "stock_code": code,
+            "stock_name": name,
+            "pct_chg": pct,
+            "high": high,
+            "low": low,
+            "pre_close": pre,
+            "volume": vol,
+            "security_type": "etf",
+            "sector_name": "",
+        })
+
+    if not snapshots:
+        logger.warning("[ETF统计] 无有效数据")
+        return 0
+
+    logger.info("[ETF统计] 有效: %d 条", len(snapshots))
+
+    db = DatabaseManager.get_instance()
+    try:
+        with db.session_scope() as session:
+            session.execute(
+                sa_delete(StockDailyStat).where(
+                    StockDailyStat.date == today,
+                    StockDailyStat.security_type == "etf",
+                )
+            )
+            session.bulk_insert_mappings(StockDailyStat, snapshots)
+        logger.info("[ETF统计] %s: 写入 %d 条", today.isoformat(), len(snapshots))
+    except Exception:
+        logger.exception("[ETF统计] DB写入失败")
         return 0
 
     return len(snapshots)
