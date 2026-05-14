@@ -90,6 +90,7 @@ def fetch_and_store_concepts() -> bool:
     total_rows = 0
     batch: list = []
     call_count = 0
+    failed: list[str] = []
 
     for i, code in enumerate(concept_codes):
         try:
@@ -105,7 +106,7 @@ def fetch_and_store_concepts() -> bool:
                     "stock_name": str(row.get("name", "")),
                 })
         except Exception:
-            logger.debug("[概念服务] 概念 %s 拉取失败，跳过", code)
+            failed.append(code)
             continue
 
         # 每 50 个概念 flush 一次
@@ -127,7 +128,12 @@ def fetch_and_store_concepts() -> bool:
         _flush_batch(batch)
         total_rows += len(batch)
 
-    logger.info("[概念服务] 完成: %d 个概念, %d 行数据", len(concept_codes), total_rows)
+    if failed:
+        logger.warning("[概念服务] 完成: %d/%d 个概念成功, %d 行数据, 失败 %d 个: %s",
+                       len(concept_codes) - len(failed), len(concept_codes),
+                       total_rows, len(failed), ", ".join(failed[:5]))
+    else:
+        logger.info("[概念服务] 完成: %d 个概念, %d 行数据", len(concept_codes), total_rows)
     return True
 
 
@@ -144,7 +150,7 @@ def _flush_batch(batch: list) -> None:
         logger.exception("[概念服务] 批次写入失败")
 
 
-_FILTER_RE = re.compile("|".join(_EXCLUDE_CONCEPT_PATTERNS)) if _EXCLUDE_CONCEPT_PATTERNS else None
+_FILTER_RE = re.compile("|".join(_EXCLUDE_CONCEPT_PATTERNS), re.IGNORECASE) if _EXCLUDE_CONCEPT_PATTERNS else None
 
 
 def get_concepts_for_stock(stock_code: str, max_concepts: int = MAX_CONCEPTS_PER_STOCK) -> List[str]:

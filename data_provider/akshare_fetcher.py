@@ -1698,12 +1698,12 @@ class AkshareFetcher(BaseFetcher):
         # 1. 提取基础比对数据：最新价、昨收
         # 兼容不同接口返回的列名 sina/em efinance tushare xtdata
         code_col = next((c for c in ['代码', '股票代码', 'ts_code','stock_code'] if c in df.columns), None)
-        name_col = next((c for c in ['名称', '股票名称','name','name'] if c in df.columns), None)
-        close_col = next((c for c in ['最新价', '最新价', 'close','lastPrice'] if c in df.columns), None)
-        pre_close_col = next((c for c in ['昨收', '昨日收盘', 'pre_close','lastClose'] if c in df.columns), None)
-        amount_col = next((c for c in ['成交额', '成交额', 'amount','amount'] if c in df.columns), None)
-        volume_col = next((c for c in ['成交量', '成交量', 'volume'] if c in df.columns), None)
-        pct_chg_col = next((c for c in ['涨跌幅', '涨跌幅', 'pct_chg', 'pctChg'] if c in df.columns), None)
+        name_col = next((c for c in ['名称', '股票名称', 'name'] if c in df.columns), None)
+        close_col = next((c for c in ['最新价', 'close', 'lastPrice'] if c in df.columns), None)
+        pre_close_col = next((c for c in ['昨收', '昨日收盘', 'pre_close', 'lastClose'] if c in df.columns), None)
+        amount_col = next((c for c in ['成交额', 'amount'] if c in df.columns), None)
+        volume_col = next((c for c in ['成交量', 'volume'] if c in df.columns), None)
+        pct_chg_col = next((c for c in ['涨跌幅', 'pct_chg', 'pctChg'] if c in df.columns), None)
 
         limit_up_count = 0
         limit_down_count = 0
@@ -1719,7 +1719,7 @@ class AkshareFetcher(BaseFetcher):
         )):
 
             # 停牌过滤 efinance 的停牌数据有时候会缺失价格显示为 '-'，em 显示为none
-            if pd.isna(current_price) or pd.isna(pre_close) or current_price in ['-'] or pre_close in ['-'] or amount == 0:
+            if pd.isna(current_price) or pd.isna(pre_close) or current_price in ['-'] or pre_close in ['-']:
                 continue
 
             # em、efinance 为str 需要转换为float

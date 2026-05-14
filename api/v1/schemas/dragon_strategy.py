@@ -13,6 +13,7 @@ class DragonAnalysisResponse(BaseModel):
     run_time: Optional[str] = Field(None, description="运行时间 14:30/17:00")
     board_summary: Optional[Dict[str, Any]] = Field(None, description="板块概况")
     dragon_result: Optional[Dict[str, Any]] = Field(None, description="龙头识别结果")
+    is_fallback: bool = Field(False, description="是否为 fallback 结果（非请求日期）")
 
 
 class DragonDatesResponse(BaseModel):

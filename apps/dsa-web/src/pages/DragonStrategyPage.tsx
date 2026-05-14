@@ -4,7 +4,7 @@ import {
   Zap, Crown, Flame, Target, BarChart3, Activity,
   ChevronLeft, ChevronRight,
 } from 'lucide-react';
-import { dragonStrategyApi, type DragonStock, type BoardSummary } from '../api/dragonStrategy';
+import { dragonStrategyApi, type DragonStock, type BoardSummary, type DragonAnalysisResponse } from '../api/dragonStrategy';
 import type { ParsedApiError } from '../api/error';
 import { AppPage } from '../components/common/AppPage';
 import { ApiErrorAlert } from '../components/common/ApiErrorAlert';
@@ -190,33 +190,46 @@ const DragonStrategyPage: React.FC = () => {
   const [allDragons, setAllDragons] = useState<DragonStock[]>([]);
   const [runTime, setRunTime] = useState<string>('');
   const [dates, setDates] = useState<string[]>([]);
+  const [isFallback, setIsFallback] = useState(false);
+
+  const parseResult = useCallback((result: DragonAnalysisResponse) => {
+    const dr = result.dragonResult;
+    setBoardSummary(result.boardSummary || null);
+    setRunTime(result.runTime || '');
+    setSuperDragons(dr?.superDragons || []);
+    setTrueDragons(dr?.trueDragons || []);
+    setCrossDragons(dr?.crossBoardDragons || []);
+    setConsecutiveLeaders(dr?.consecutiveLeaders || []);
+    setAllDragons(dr?.dragonStocks || []);
+    setIsFallback(!!result.isFallback);
+  }, []);
 
   const fetchData = useCallback(async (queryDate: string) => {
     setLoading(true);
     setError(null);
+    setIsFallback(false);
     try {
       const result = await dragonStrategyApi.getByDate(queryDate);
-      const dr = result.dragonResult;
-      setBoardSummary(result.boardSummary || null);
-      setRunTime(result.runTime || '');
-      setSuperDragons(dr?.superDragons || []);
-      setTrueDragons(dr?.trueDragons || []);
-      setCrossDragons(dr?.crossBoardDragons || []);
-      setConsecutiveLeaders(dr?.consecutiveLeaders || []);
-      setAllDragons(dr?.dragonStocks || []);
+      parseResult(result);
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : '请求失败';
-      setError({ title: '加载失败', message: msg, rawMessage: msg, category: 'unknown' });
-      setSuperDragons([]);
-      setTrueDragons([]);
-      setCrossDragons([]);
-      setConsecutiveLeaders([]);
-      setAllDragons([]);
-      setBoardSummary(null);
+      // 当天的数据不存在时，尝试获取最近一次结果
+      try {
+        const latest = await dragonStrategyApi.getLatest();
+        parseResult({ ...latest, isFallback: true });
+      } catch {
+        const msg = e instanceof Error ? e.message : '请求失败';
+        setError({ title: '加载失败', message: msg, rawMessage: msg, category: 'unknown' });
+        setSuperDragons([]);
+        setTrueDragons([]);
+        setCrossDragons([]);
+        setConsecutiveLeaders([]);
+        setAllDragons([]);
+        setBoardSummary(null);
+      }
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [parseResult]);
 
   const fetchDates = useCallback(async () => {
     try {
@@ -269,6 +282,11 @@ const DragonStrategyPage: React.FC = () => {
         >
           <ChevronRight className="h-4 w-4" />
         </button>
+        {isFallback && (
+          <span className="text-xs text-amber-400/80 bg-amber-400/10 px-2 py-0.5 rounded">
+            今日暂无数据，显示最近结果 ({date})
+          </span>
+        )}
         {runTime && (
           <span className="text-xs text-muted-foreground ml-2">
             数据时间: {runTime}

@@ -399,6 +399,7 @@ def identify_dragon_stocks(sector_count: int = 5) -> Dict:
     try:
         from src.services.concept_service import get_concept_map_for_stocks
     except ImportError:
+        logger.warning("[龙头战法] concept_service 导入失败，概念数据将为空")
         get_concept_map_for_stocks = None  # type: ignore[assignment]
 
     for sector_type, sector_list in [("industry", sectors.get("industry", [])),

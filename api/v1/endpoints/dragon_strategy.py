@@ -10,6 +10,7 @@ from api.v1.schemas.dragon_strategy import DragonAnalysisResponse, DragonDatesRe
 from src.services.dragon_analysis_service import (
     get_dragon_analysis_by_date,
     get_dragon_analysis_dates,
+    get_latest_dragon_analysis,
 )
 
 logger = logging.getLogger(__name__)
@@ -35,6 +36,23 @@ def get_dragon_analysis(date_str: str = Query(..., alias="date", description="�
         run_time=row.get("run_time"),
         board_summary=result.get("board_summary"),
         dragon_result=result.get("dragon_result"),
+    )
+
+
+@router.get("/latest", response_model=DragonAnalysisResponse)
+def get_latest_dragon_analysis_endpoint():
+    """获取最近一次龙头战法分析结果（当今天尚无数据时使用）。"""
+    row = get_latest_dragon_analysis()
+    if not row:
+        raise HTTPException(status_code=404, detail="暂无任何龙头战法分析结果")
+
+    result = row.get("result", {})
+    return DragonAnalysisResponse(
+        date=row.get("date", ""),
+        run_time=row.get("run_time"),
+        board_summary=result.get("board_summary"),
+        dragon_result=result.get("dragon_result"),
+        is_fallback=True,
     )
 
 

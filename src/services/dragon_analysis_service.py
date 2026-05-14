@@ -110,6 +110,20 @@ def get_dragon_analysis_by_date_and_time(target_date: date, run_time: str) -> Op
         return row.to_dict() if row else None
 
 
+def get_latest_dragon_analysis() -> Optional[dict]:
+    """获取最近一次龙头分析结果（不限日期）。"""
+    from sqlalchemy import select
+
+    db = DatabaseManager.get_instance()
+    with db.get_session() as session:
+        row = session.execute(
+            select(DragonAnalysisResult)
+            .order_by(DragonAnalysisResult.date.desc(), DragonAnalysisResult.run_time.desc())
+            .limit(1)
+        ).scalars().first()
+        return row.to_dict() if row else None
+
+
 def get_dragon_analysis_dates(days: int = 30) -> List[str]:
     """获取最近N天有龙头分析数据的日期列表。"""
     from datetime import timedelta

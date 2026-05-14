@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Activity, CalendarDays } from 'lucide-react';
 import {
+  Bar,
+  BarChart,
   CartesianGrid,
   Legend,
   Line,
@@ -310,26 +312,22 @@ const IntradayCharts: React.FC<{
 
     <ChartCard title="成交额(亿)" subtitle="全市场成交额变化">
       <ResponsiveContainer width="100%" height={280}>
-        <LineChart data={chartData}>
+        <BarChart data={chartData} maxBarSize={40}>
           <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
           <XAxis dataKey="time" tick={{ fontSize: 12 }} />
           <YAxis tick={{ fontSize: 12 }} />
           <Tooltip />
           <Legend onClick={onLegendClick} />
           {days.map((day) => (
-            <Line
+            <Bar
               key={`${day}_amt`}
-              type="monotone"
               dataKey={`${day}_amount`}
               name={`${day}`}
-              stroke={upColors.get(day)}
-              strokeWidth={STROKE_WIDTH}
-              dot={{ r: DOT_R }}
-              connectNulls
+              fill={upColors.get(day)}
               hide={hiddenLegends.has(`${day}_amount`)}
             />
           ))}
-        </LineChart>
+        </BarChart>
       </ResponsiveContainer>
     </ChartCard>
 
@@ -456,23 +454,19 @@ const DailyCharts: React.FC<{ dailyData: Record<string, number | string>[] } & C
 
       <ChartCard title="成交额(亿)（收盘）" subtitle="每日15:00收盘快照">
         <ResponsiveContainer width="100%" height={280}>
-          <LineChart data={dailyData}>
+          <BarChart data={dailyData} maxBarSize={40}>
             <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
             <XAxis dataKey="date" tick={{ fontSize: 12 }} />
             <YAxis tick={{ fontSize: 12 }} />
             <Tooltip />
             <Legend onClick={onLegendClick} />
-            <Line
-              type="monotone"
+            <Bar
               dataKey="totalAmount"
               name="成交额"
-              stroke="#60a5fa"
-              strokeWidth={STROKE_WIDTH}
-              dot={{ r: DOT_R }}
-              connectNulls
+              fill="#60a5fa"
               hide={hiddenLegends.has('totalAmount')}
             />
-          </LineChart>
+          </BarChart>
         </ResponsiveContainer>
       </ChartCard>
 

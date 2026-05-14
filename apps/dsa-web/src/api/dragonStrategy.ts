@@ -55,6 +55,7 @@ export interface DragonAnalysisResponse {
   runTime?: string;
   boardSummary?: BoardSummary;
   dragonResult?: DragonResult;
+  isFallback?: boolean;
 }
 
 export interface DragonDatesResponse {
@@ -66,6 +67,11 @@ export const dragonStrategyApi = {
     const response = await apiClient.get<Record<string, unknown>>('/api/v1/dragon-strategy', {
       params: { date },
     });
+    return toCamelCase<DragonAnalysisResponse>(response.data);
+  },
+
+  getLatest: async (): Promise<DragonAnalysisResponse> => {
+    const response = await apiClient.get<Record<string, unknown>>('/api/v1/dragon-strategy/latest');
     return toCamelCase<DragonAnalysisResponse>(response.data);
   },
 
