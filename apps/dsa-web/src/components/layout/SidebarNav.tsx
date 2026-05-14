@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
-import { Activity, BarChart3, BriefcaseBusiness, CalendarDays, Flame, Home, LogOut, MessageSquareQuote, Settings2, Star } from 'lucide-react';
+import { Activity, BarChart3, BriefcaseBusiness, CalendarDays, Flame, Home, LayoutList, LogOut, MessageSquareQuote, Settings2, Star } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useAgentChatStore } from '../../stores/agentChatStore';
@@ -32,6 +32,7 @@ const NAV_ITEMS: NavItem[] = [
   { key: 'daily-summary', label: '日结', to: '/daily-summary', icon: CalendarDays },
   { key: 'market-sentiment', label: '情绪', to: '/market-sentiment', icon: Activity },
   { key: 'dragon-strategy', label: '龙头', to: '/dragon-strategy', icon: Flame },
+  { key: 'sector-rankings', label: '板块', to: '/sector-rankings', icon: LayoutList },
   { key: 'settings', label: '设置', to: '/settings', icon: Settings2 },
 ];
 

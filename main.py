@@ -1225,6 +1225,46 @@ def main() -> int:
                 })
                 logger.info("概念数据更新已启用: %s", _CONCEPT_UPDATE_TIME)
 
+            if getattr(config, 'sector_ranking_enabled', True):
+                _sector_ranking_last_run = {}
+                _SECTOR_RANKING_TIME = "17:00"
+
+                def sector_ranking_task():
+                    from src.core.trading_calendar import is_market_open
+                    now = datetime.now()
+                    if not is_market_open('cn', now.date()):
+                        return
+                    today = now.strftime("%Y-%m-%d")
+                    if _sector_ranking_last_run.get('_date') != today:
+                        _sector_ranking_last_run.clear()
+                        _sector_ranking_last_run['_date'] = today
+
+                    dt = _SECTOR_RANKING_TIME
+                    key = f"{today}_{dt}"
+                    if _sector_ranking_last_run.get(key):
+                        return
+                    h, m = int(dt[:2]), int(dt[3:5])
+                    target = now.replace(hour=h, minute=m, second=0, microsecond=0)
+                    delta = (now - target).total_seconds()
+                    if 0 <= delta < 300:
+                        from src.services.sector_ranking_service import collect_daily_snapshots
+                        for st in ("industry", "concept"):
+                            try:
+                                n = collect_daily_snapshots(st)
+                                if n:
+                                    _sector_ranking_last_run[key] = True
+                                    logger.info("[板块排名] %s 完成: %d 条", st, n)
+                            except Exception:
+                                logger.exception("[板块排名] %s 采集失败", st)
+
+                background_tasks.append({
+                    "task": sector_ranking_task,
+                    "interval_seconds": 55,
+                    "run_immediately": False,
+                    "name": "sector_ranking",
+                })
+                logger.info("板块排名更新已启用: %s", _SECTOR_RANKING_TIME)
+
             run_with_schedule(
                 task=scheduled_task,
                 schedule_time=config.schedule_time,

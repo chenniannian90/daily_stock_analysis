@@ -878,6 +878,46 @@ class ConceptStockMapping(Base):
         }
 
 
+class SectorDailySnapshot(Base):
+    """板块每日快照 — 行业/概念板块的涨跌幅、资金流、涨停家数"""
+
+    __tablename__ = 'sector_daily_snapshot'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    date = Column(Date, nullable=False, index=True)
+    sector_code = Column(String(20), nullable=False, index=True)
+    sector_name = Column(String(100), nullable=False)
+    sector_type = Column(String(10), nullable=False)  # 'industry' | 'concept'
+    change_pct = Column(Float, default=0.0)
+    net_capital_flow = Column(Float, default=0.0)      # 主力净流入(亿)
+    limit_up_count = Column(Integer, default=0)
+    up_count = Column(Integer, default=0)
+    down_count = Column(Integer, default=0)
+    total_amount = Column(Float, default=0.0)           # 总成交额(亿)
+    created_at = Column(DateTime, default=datetime.now)
+
+    __table_args__ = (
+        UniqueConstraint('date', 'sector_code', name='uix_sector_date_code'),
+        Index('ix_sector_date_type', 'date', 'sector_type'),
+    )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'id': self.id,
+            'date': self.date.isoformat() if self.date else None,
+            'sector_code': self.sector_code,
+            'sector_name': self.sector_name,
+            'sector_type': self.sector_type,
+            'change_pct': self.change_pct,
+            'net_capital_flow': self.net_capital_flow,
+            'limit_up_count': self.limit_up_count,
+            'up_count': self.up_count,
+            'down_count': self.down_count,
+            'total_amount': self.total_amount,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
 class DatabaseManager:
     """
     数据库管理器 - 单例模式
